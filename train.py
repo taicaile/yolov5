@@ -204,16 +204,17 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             # cf = torch.bincount(c.long(), minlength=nc) + 1.  # frequency
             # model._initialize_biases(cf.to(device))
             if plots:
-                # plot_classes(dataset,names, save_dir=log_dir)
                 Thread(target=plot_labels, args=(labels, save_dir, loggers), daemon=True).start()
                 if tb_writer:
                     tb_writer.add_histogram('classes', c, 0)
 
+                from utils.plots import plot_classes, plot_labels_each
+                plot_classes(dataset, names, save_dir=save_dir)
+                plot_labels_each(names, labels, dataset.shapes, save_dir=save_dir)
+                import pdb; pdb.set_trace()
             # Anchors
             if not opt.noautoanchor:
                 check_anchors(dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)
-        import pdb
-        pdb.set_trace()
     # Model parameters
     hyp['cls'] *= nc / 80.  # scale coco-tuned hyp['cls'] to current dataset
     model.nc = nc  # attach number of classes to model

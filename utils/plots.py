@@ -54,7 +54,10 @@ def butter_lowpass_filtfilt(data, cutoff=1500, fs=50000, order=5):
 
 def plot_one_box(x, img, color=None, label=None, line_thickness=None):
     # Plots one bounding box on image img
-    tl = line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thickness
+    # tl = line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thickness
+    if isinstance(x[0], torch.Tensor):
+        x = [_x.item() for _x in x]
+    tl = line_thickness or math.floor(0.01 * min(abs(x[2]-x[0]), abs(x[3]-x[1]))) + 1  # line/font thickness
     color = color or [random.randint(0, 255) for _ in range(3)]
     c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
     cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
@@ -303,6 +306,70 @@ def plot_labels(labels, save_dir=Path(''), loggers=None):
     for k, v in loggers.items() or {}:
         if k == 'wandb' and v:
             v.log({"Labels": [v.Image(str(x), caption=x.name) for x in save_dir.glob('*labels*.jpg')]})
+
+def plot_labels_each(names, labels, shapes, save_dir):
+    import collections
+    if len(names)>1 and len(names)<=15:
+        # plot each class
+        labels_dict = collections.defaultdict(list)
+        shapes_dict = collections.defaultdict(list)
+        for i_label, labels_cur_img in enumerate(labels):
+            for i in np.unique(labels_cur_img[:,0]):
+                labels_dict[i].append(labels_cur_img[labels_cur_img[:,0]==i,:])
+                shapes_dict[i].append(shapes[i_label])
+
+        assert len(labels_dict) == len(shapes_dict), 'labels_dict length is not same with shapes_dict, need to check'
+
+        for i,name in enumerate(names):
+            plot_labels(labels_dict[i], [name], shapes_dict[i],save_dir=save_dir)
+
+def plot_classes(dataset, names, save_dir=''):
+    from utils.datasets import letterbox
+    # for each class, plot 10 images
+    nc = len(names)
+    cols = 8
+    
+    max_size = 640
+    tl = 3  # line thickness
+    tf = max(tl - 1, 1)  # font thickness
+    output = np.full((int(nc * max_size), int(cols * max_size), 3), 255, dtype=np.uint8)
+
+    for label_n in range(nc):
+        skip_cnt = 0
+        count = 0
+        while count < cols and skip_cnt<len(dataset):
+            # random index
+            i = random.randint(0,len(dataset)-1)
+            # load label and check 
+            img_labels = dataset.labels[i]
+            # label is empty, continue
+            if img_labels.size==0 or label_n not in img_labels[:,0]:
+                skip_cnt+=1
+                continue
+            img_labels = img_labels[img_labels[:,0]==label_n,:]
+            # load img
+            img = cv2.imread(dataset.img_files[i])
+            img, ratio, pad = letterbox(img, max_size, auto=False, scaleup=False)
+            
+            block_x = count * max_size
+            block_y = label_n * max_size
+
+            boxes = xywh2xyxy(img_labels[:, 1:]).T
+
+            h, w, _ = img.shape
+            # print(img.shape,(h,w), pad, ratio)
+            boxes[[0, 2]] *= (w-2*pad[0])
+            boxes[[0, 2]] += block_x + pad[0]
+            boxes[[1, 3]] *= (h-2*pad[1])
+            boxes[[1, 3]] += block_y + pad[1]
+            output[block_y:block_y + max_size, block_x:block_x + max_size, :] = img
+            for j, box in enumerate(boxes.T):
+                # img = img.transpose(1, 2, 0)
+                plot_one_box(box, output,label=names[label_n])
+
+            count+=1
+    fname = Path(save_dir) / 'classes.jpg'
+    Image.fromarray(output).save(fname)
 
 
 def plot_evolution(yaml_file='data/hyp.finetune.yaml'):  # from utils.plots import *; plot_evolution()
