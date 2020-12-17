@@ -25,7 +25,7 @@ import test  # import test.py to get mAP after each epoch
 from models.yolo import Model
 from utils.datasets import create_dataloader
 from utils.general import (
-    torch_distributed_zero_first, labels_to_class_weights, plot_labels, check_anchors, labels_to_image_weights,
+    plot_classes, torch_distributed_zero_first, labels_to_class_weights, plot_labels, check_anchors, labels_to_image_weights,
     compute_loss, plot_images, fitness, strip_optimizer, plot_results, get_latest_run, check_dataset, check_file,
     check_git_status, check_img_size, increment_dir, print_mutation, plot_evolution, set_logging, init_seeds)
 from utils.google_utils import attempt_download
@@ -188,7 +188,8 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             c = torch.tensor(labels[:, 0])  # classes
             # cf = torch.bincount(c.long(), minlength=nc) + 1.  # frequency
             # model._initialize_biases(cf.to(device))
-            plot_labels(labels, save_dir=log_dir)
+            plot_classes(dataset,names, save_dir=log_dir)
+            plot_labels(dataset.labels, names, dataset.shapes,save_dir=log_dir)
             if tb_writer:
                 # tb_writer.add_hparams(hyp, {})  # causes duplicate https://github.com/ultralytics/yolov5/pull/384
                 tb_writer.add_histogram('classes', c, 0)
@@ -196,7 +197,8 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             # Anchors
             if not opt.noautoanchor:
                 check_anchors(dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)
-
+        import pdb
+        pdb.set_trace()
     # Model parameters
     hyp['cls'] *= nc / 80.  # scale coco-tuned hyp['cls'] to current dataset
     model.nc = nc  # attach number of classes to model
@@ -295,7 +297,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 pbar.set_description(s)
 
                 # Plot
-                if ni < 3:
+                if ni < 3 or True:
                     f = str(log_dir / f'train_batch{ni}.jpg')  # filename
                     result = plot_images(images=imgs, targets=targets, paths=paths, fname=f)
                     # if tb_writer and result is not None:

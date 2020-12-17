@@ -985,10 +985,13 @@ def butter_lowpass_filtfilt(data, cutoff=1500, fs=50000, order=5):
     b, a = butter_lowpass(cutoff, fs, order=order)
     return filtfilt(b, a, data)  # forward-backward filter
 
-
 def plot_one_box(x, img, color=None, label=None, line_thickness=None):
     # Plots one bounding box on image img
-    tl = line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thickness
+    # tl = line_thickness or round(0.001 * min(img.shape[0], img.shape[1])/2) + 1  # line/font thickness
+    if isinstance(x[0], torch.Tensor):
+        x = [_x.item() for _x in x]
+    tl = line_thickness or math.floor(0.01 * min(abs(x[2]-x[0]), abs(x[3]-x[1]))) + 1  # line/font thickness
+    
     color = color or [random.randint(0, 255) for _ in range(3)]
     c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
     cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
@@ -1180,23 +1183,108 @@ def plot_study_txt(f='study.txt', x=None):  # from utils.general import *; plot_
     plt.savefig('study_mAP_latency.png', dpi=300)
     plt.savefig(f.replace('.txt', '.png'), dpi=300)
 
+def roundup(x):
+    return x if x % 100 == 0 else x + 100 - x % 100
 
-def plot_labels(labels, save_dir=''):
+def plot_classes(dataset, names, save_dir=''):
+    from utils.datasets import letterbox
+    # for each class, plot 10 images
+    nc = len(names)
+    cols = 8
+    
+    max_size = 640
+    tl = 3  # line thickness
+    tf = max(tl - 1, 1)  # font thickness
+    output = np.full((int(nc * max_size), int(cols * max_size), 3), 255, dtype=np.uint8)
+
+    for label_n in range(nc):
+        count = 0
+        while count < cols:
+            # random index
+            i = random.randint(0,len(dataset)-1)
+            # load label and check 
+            img_labels = dataset.labels[i]
+            # label is empty, continue
+            if img_labels.size==0 or label_n not in img_labels[:,0]:
+                continue
+            img_labels = img_labels[img_labels[:,0]==label_n,:]
+            # load img
+            img = cv2.imread(dataset.img_files[i])
+            img, ratio, pad = letterbox(img, max_size, auto=False, scaleup=False)
+            
+            block_x = count * max_size
+            block_y = label_n * max_size
+
+            boxes = xywh2xyxy(img_labels[:, 1:]).T
+
+            h, w, _ = img.shape
+            print(img.shape,(h,w), pad, ratio)
+            boxes[[0, 2]] *= (w-2*pad[0])
+            boxes[[0, 2]] += block_x + pad[0]
+            boxes[[1, 3]] *= (h-2*pad[1])
+            boxes[[1, 3]] += block_y + pad[1]
+            output[block_y:block_y + max_size, block_x:block_x + max_size, :] = img
+            for j, box in enumerate(boxes.T):
+                # img = img.transpose(1, 2, 0)
+                plot_one_box(box, output,label=names[label_n])
+
+            count+=1
+    fname = Path(save_dir) / 'classes.jpg'
+    Image.fromarray(output).save(fname)
+
+
+
+def plot_labels(labels, names, shapes,save_dir=''):
     # plot dataset labels
-    c, b = labels[:, 0], labels[:, 1:].transpose()  # classes, boxes
-    nc = int(c.max() + 1)  # number of classes
+
+    con_labels = np.concatenate(labels, 0)
+    c, b = con_labels[:, 0], con_labels[:, 1:].transpose()  # classes, boxes
+    nc = int(c.max()+1)  # number of classes
 
     fig, ax = plt.subplots(2, 2, figsize=(8, 8), tight_layout=True)
     ax = ax.ravel()
     ax[0].hist(c, bins=np.linspace(0, nc, nc + 1) - 0.5, rwidth=0.8)
     ax[0].set_xlabel('classes')
+    
+    ax[0].set_xticks(ticks = list(range(nc)))
+    if nc==len(names) and len(names)<=8:
+        ax[0].set_xticklabels(labels=names)
+    # single graph
+    elif len(names)==1:
+        ax[0].set_xticklabels(labels=list(range(nc-1)) + names)
+
     ax[1].scatter(b[0], b[1], c=hist2d(b[0], b[1], 90), cmap='jet')
     ax[1].set_xlabel('x')
     ax[1].set_ylabel('y')
+    ax[1].set_xlim([0, 1])
+    ax[1].set_ylim([0, 1])
+    ax[1].set_aspect('equal', 'box')
+
+
     ax[2].scatter(b[2], b[3], c=hist2d(b[2], b[3], 90), cmap='jet')
+    ax[2].set_xlim([0, 1])
+    ax[2].set_ylim([0, 1])
     ax[2].set_xlabel('width')
     ax[2].set_ylabel('height')
-    plt.savefig(Path(save_dir) / 'labels.png', dpi=200)
+    ax[2].set_aspect('equal', 'box')
+
+    import collections
+    s = np.array([(*x,y) for x,y in collections.Counter(tuple(row) for row in shapes).items()]).transpose()
+    im = ax[3].scatter(s[0], s[1], alpha = 0.3,s=s[2],cmap='jet')
+    # s = shapes.transpose()
+    # im = ax[3].scatter(s[0], s[1], c=hist2d(s[0], s[1], 90),cmap='jet')
+    # fig.colorbar(im, ax=ax[3])
+    ax[3].grid(True)
+    ax[3].set_xlabel('image width')
+    ax[3].set_ylabel('image height')
+    ax[3].set_aspect('equal')
+
+    max_lim = roundup(np.max(s[0:2])) * 2
+ 
+    ax[3].set_xlim(0,max_lim)
+    ax[3].set_ylim(0,max_lim)
+    fig_file =  'labels.png' if len(names)>1 else f'label_{names[0]}.png'
+    plt.savefig(Path(save_dir) / fig_file, dpi=200)
     plt.close()
 
     # seaborn correlogram
@@ -1207,10 +1295,28 @@ def plot_labels(labels, save_dir=''):
         sns.pairplot(x, corner=True, diag_kind='hist', kind='scatter', markers='o',
                      plot_kws=dict(s=3, edgecolor=None, linewidth=1, alpha=0.02),
                      diag_kws=dict(bins=50))
-        plt.savefig(Path(save_dir) / 'labels_correlogram.png', dpi=200)
+
+        fig_file =  'labels_correlogram.png' if len(names)>1 else f'label_{names[0]}_correlogram.png'
+        plt.savefig(Path(save_dir) / fig_file, dpi=200)
         plt.close()
     except Exception as e:
         pass
+
+
+    # def plot_labels(labels, names, shapes,save_dir=''):
+    if len(names)>1 and len(names)<=15:
+        # plot each class
+        labels_dict = collections.defaultdict(list)
+        shapes_dict = collections.defaultdict(list)
+        for i_label, labels_cur_img in enumerate(labels):
+            for i in np.unique(labels_cur_img[:,0]):
+                labels_dict[i].append(labels_cur_img[labels_cur_img[:,0]==i,:])
+                shapes_dict[i].append(shapes[i_label])
+
+        assert len(labels_dict) == len(shapes_dict), 'labels_dict length is not same with shapes_dict, need to check'
+
+        for i,name in enumerate(names):
+            plot_labels(labels_dict[i], [name], shapes_dict[i],save_dir=save_dir)
 
 
 def plot_evolution(yaml_file='data/hyp.finetune.yaml'):  # from utils.general import *; plot_evolution()
