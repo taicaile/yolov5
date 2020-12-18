@@ -33,7 +33,6 @@ from utils.google_utils import attempt_download
 from utils.loss import compute_loss
 from utils.plots import plot_images, plot_labels, plot_results, plot_evolution
 from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first
-
 logger = logging.getLogger(__name__)
 
 try:
@@ -211,7 +210,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
                 from utils.plots import plot_classes, plot_labels_each
                 plot_classes(dataset, names, save_dir=save_dir)
-                plot_labels_each(names, labels, dataset.shapes, save_dir=save_dir)
+                # plot_labels_each(names, labels, dataset.shapes, save_dir=save_dir)
                 # import pdb; pdb.set_trace()
             # Anchors
             if not opt.noautoanchor:
@@ -298,12 +297,12 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             if wandb:
                 unique, counts = np.unique(targets.numpy().T[1].astype(int), return_counts=True)
                 counts = dict(zip(unique, counts))
-                for name in names:
-                    wandb.log({f'batch/cnt_{name}':counts.get(name,0), 'batch/batch':ni})
-                wandb.log({'batch/loss':loss, 'batch/batch':ni})
+                for _name in names:
+                    wandb.log({f'batch/cnt_{_name}':counts.get(_name,0), 'batch/batch':ni})
+                wandb.log({'batch/loss':loss.item(), 'batch/batch':ni})
 
-                for name, loss in zip([lbox, lobj, lcls, loss], loss_items):
-                    wandb.log({f'batch/loss_{name}':loss, 'batch/batch':ni})
+                for _name, _loss in zip(['lbox', 'lobj', 'lcls', 'loss'], loss_items):
+                    wandb.log({f'batch/loss_{_name}':_loss.item(), 'batch/batch':ni})
 
             # Backward
             scaler.scale(loss).backward()
