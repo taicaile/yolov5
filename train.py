@@ -209,10 +209,13 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 if tb_writer:
                     tb_writer.add_histogram('classes', c, 0)
 
+                from utils.plots import plot_classes, plot_labels_each
+                plot_classes(dataset, names, save_dir=save_dir)
+                plot_labels_each(names, labels, dataset.shapes, save_dir=save_dir)
+                # import pdb; pdb.set_trace()
             # Anchors
             if not opt.noautoanchor:
                 check_anchors(dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)
-
     # Model parameters
     hyp['cls'] *= nc / 80.  # scale coco-tuned hyp['cls'] to current dataset
     model.nc = nc  # attach number of classes to model
@@ -290,6 +293,17 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 loss, loss_items = compute_loss(pred, targets.to(device), model)  # loss scaled by batch_size
                 if rank != -1:
                     loss *= opt.world_size  # gradient averaged between devices in DDP mode
+            
+            # import pdb; pdb.set_trace()
+            if wandb:
+                unique, counts = np.unique(targets.numpy().T[1].astype(int), return_counts=True)
+                counts = dict(zip(unique, counts))
+                for name in names:
+                    wandb.log({f'batch/cnt_{name}':counts.get(name,0), 'batch/batch':ni})
+                wandb.log({'batch/loss':loss, 'batch/batch':ni})
+
+                for name, loss in zip([lbox, lobj, lcls, loss], loss_items):
+                    wandb.log({f'batch/loss_{name}':loss, 'batch/batch':ni})
 
             # Backward
             scaler.scale(loss).backward()
@@ -344,6 +358,12 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                                                  plots=plots and final_epoch,
                                                  log_imgs=opt.log_imgs if wandb else 0)
 
+                for tag, score in zip(names, results):
+                    if wandb:
+                        wandb.log({"metrics/mAP_"+ tag: score, 'step/epoch': epoch})  # W&B
+
+            # TODO record maps for each class
+            # TODO record targets for each class for the whole test dataset
             # Write
             with open(results_file, 'a') as f:
                 f.write(s + '%10.4g' * 7 % results + '\n')  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
@@ -359,7 +379,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 if tb_writer:
                     tb_writer.add_scalar(tag, x, epoch)  # tensorboard
                 if wandb:
-                    wandb.log({tag: x})  # W&B
+                    wandb.log({tag: x, 'step/epoch': epoch})  # W&B
 
             # Update best mAP
             fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
