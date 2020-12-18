@@ -297,8 +297,8 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             if wandb:
                 unique, counts = np.unique(targets.numpy().T[1].astype(int), return_counts=True)
                 counts = dict(zip(unique, counts))
-                for _name in names:
-                    wandb.log({f'batch/cnt_{_name}':counts.get(_name,0), 'batch/batch':ni})
+                for i, _name in enumerate(names):
+                    wandb.log({f'batch/cnt_{_name}':counts.get(i,0), 'batch/batch':ni})
                 wandb.log({'batch/loss':loss.item(), 'batch/batch':ni})
 
                 for _name, _loss in zip(['lbox', 'lobj', 'lcls', 'loss'], loss_items):
