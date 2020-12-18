@@ -304,7 +304,9 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
 
         # Detections matrix nx6 (xyxy, conf, cls)
         if multi_label:
+            # 返回 index 和 类别
             i, j = (x[:, 5:] > conf_thres).nonzero(as_tuple=False).T
+            # 获得 坐标值, score, 类别， 和 1
             x = torch.cat((box[i], x[i, j + 5, None], j[:, None].float()), 1)
         else:  # best class only
             conf, j = x[:, 5:].max(1, keepdim=True)
