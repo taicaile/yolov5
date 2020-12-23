@@ -295,14 +295,15 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             
             # import pdb; pdb.set_trace()
             if wandb:
+                # UPDATE : add some logs
                 unique, counts = np.unique(targets.numpy().T[1].astype(int), return_counts=True)
-                counts = dict(zip(unique, counts))
+                counts_dict = dict(zip(unique, counts))
                 for i, _name in enumerate(names):
-                    wandb.log({f'batch/cnt_{_name}':counts.get(i,0), 'batch/batch':ni})
-                wandb.log({'batch/loss':loss.item(), 'batch/batch':ni})
+                    wandb.log({f'batch/cnt_{_name}':counts_dict.get(i,0), 'step/batch':ni})
+                wandb.log({'batch/loss':loss.item(), 'step/batch':ni})
 
                 for _name, _loss in zip(['lbox', 'lobj', 'lcls', 'loss'], loss_items):
-                    wandb.log({f'batch/loss_{_name}':_loss.item(), 'batch/batch':ni})
+                    wandb.log({f'batch/loss_{_name}':_loss.item(), 'step/batch':ni})
 
             # Backward
             scaler.scale(loss).backward()
