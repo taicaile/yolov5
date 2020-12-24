@@ -356,9 +356,9 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                                                  dataloader=testloader,
                                                  save_dir=save_dir,
                                                  plots=plots and final_epoch,
-                                                 log_imgs=opt.log_imgs if wandb else 0)
-
-                for tag, score in zip(names, results):
+                                                 log_imgs=opt.log_imgs if wandb else 0,
+                                                 verbose=True)
+                for tag, score in zip(names, maps):
                     if wandb:
                         wandb.log({"metrics/mAP_"+ tag: score, 'step/epoch': epoch})  # W&B
 
