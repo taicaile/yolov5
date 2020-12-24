@@ -204,14 +204,14 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             # cf = torch.bincount(c.long(), minlength=nc) + 1.  # frequency
             # model._initialize_biases(cf.to(device))
             if plots:
-                Thread(target=plot_labels, args=(labels, save_dir, loggers), daemon=True).start()
+                plot_labels(labels, save_dir, loggers)
                 if tb_writer:
                     tb_writer.add_histogram('classes', c, 0)
 
                 from utils.plots import plot_classes, plot_labels_each
                 plot_classes(dataset, names, save_dir=save_dir)
-                # plot_labels_each(names, labels, dataset.shapes, save_dir=save_dir)
-                # import pdb; pdb.set_trace()
+                plot_labels_each(names, labels, dataset.shapes, save_dir=save_dir, loggers=loggers)
+
             # Anchors
             if not opt.noautoanchor:
                 check_anchors(dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)
@@ -239,6 +239,14 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
         # Update image weights (optional)
         if opt.image_weights:
+            '''
+            1, 计算目标的mAP
+            2, 统计每个图片包含的每个目标的数量  
+            3, 计算每个图片的权重
+            4, 根据权重进行重新采样(重新采样相同数量的index, 这里index可能是重复的，
+               取决于权重分配)，赋值给dataset.indices.
+            5, 后续每次通过index获取图片，实际上取得是dataset.indices存储的index.
+            '''
             # Generate indices
             if rank in [-1, 0]:
                 cw = model.class_weights.cpu().numpy() * (1 - maps) ** 2 / nc  # class weights
@@ -293,7 +301,6 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 if rank != -1:
                     loss *= opt.world_size  # gradient averaged between devices in DDP mode
             
-            # import pdb; pdb.set_trace()
             if wandb:
                 # UPDATE : add some logs
                 unique, counts = np.unique(targets.numpy().T[1].astype(int), return_counts=True)

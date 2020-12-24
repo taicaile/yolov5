@@ -344,7 +344,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         self.mosaic = self.augment and not self.rect  # load 4 images at a time into a mosaic (only during training)
         self.mosaic_border = [-img_size // 2, -img_size // 2]
         self.stride = stride
-
+        # 先扫描路径下的所有图片类型的文件
         try:
             f = []  # image files
             for p in path if isinstance(path, list) else [path]:
@@ -365,14 +365,19 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         except Exception as e:
             raise Exception('Error loading data from %s: %s\nSee %s' % (path, e, help_url))
 
+        # 通过图片路径得到label文件路径
         # Check cache
         self.label_files = img2label_paths(self.img_files)  # labels
+        # 取第一个图片的父目录，得到 .cache 路径
         cache_path = Path(self.label_files[0]).parent.with_suffix('.cache')  # cached labels
         if cache_path.is_file():
+            # 如果 .cache 文件存在，则直接加载
+            # 通过文件大小和路径，计算hash, 验证hash是否一致
             cache = torch.load(cache_path)  # load
             if cache['hash'] != get_hash(self.label_files + self.img_files) or 'results' not in cache:  # changed
                 cache = self.cache_labels(cache_path)  # re-cache
         else:
+            # 扫描图片和label文件
             cache = self.cache_labels(cache_path)  # cache
 
         # Display cache
@@ -383,9 +388,11 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
         # Read cache
         cache.pop('hash')  # remove hash
+        # 加载已经验证过的 image, label 文件
         labels, shapes = zip(*cache.values())
         self.labels = list(labels)
         self.shapes = np.array(shapes, dtype=np.float64)
+        # 重新赋值已经验证过的 image, label 文件
         self.img_files = list(cache.keys())  # update
         self.label_files = img2label_paths(cache.keys())  # update
         if single_cls:
@@ -436,6 +443,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 pbar.desc = 'Caching images (%.1fGB)' % (gb / 1E9)
 
     def cache_labels(self, path=Path('./labels.cache')):
+        # 通过图片和label文件路径，严重图片是否正确，以及加载label文件(label文件如果不存在则赋值为空).
         # Cache dataset labels, check images and read shapes
         x = {}  # dict
         nm, nf, ne, nc = 0, 0, 0, 0  # number missing, found, empty, duplicate
