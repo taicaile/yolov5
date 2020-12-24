@@ -894,7 +894,8 @@ def extract_boxes(path='../coco128/'):  # from utils.datasets import *; extract_
     # Convert detection dataset into classification dataset, with one directory per class
 
     path = Path(path)  # images dir
-    shutil.rmtree(path / 'classifier') if (path / 'classifier').is_dir() else None  # remove existing
+    outDir = path.parent / 'classifier'
+    shutil.rmtree(outDir) if outDir.is_dir() else None  # remove existing
     files = list(path.rglob('*.*'))
     n = len(files)  # number of files
     for im_file in tqdm(files, total=n):
@@ -911,13 +912,14 @@ def extract_boxes(path='../coco128/'):  # from utils.datasets import *; extract_
 
                 for j, x in enumerate(lb):
                     c = int(x[0])  # class
-                    f = (path / 'classifier') / f'{c}' / f'{path.stem}_{im_file.stem}_{j}.jpg'  # new filename
+                    f = outDir / f'{c}' / f'{path.stem}_{im_file.stem}_{j}.jpg'  # new filename
                     if not f.parent.is_dir():
                         f.parent.mkdir(parents=True)
 
                     b = x[1:] * [w, h, w, h]  # box
                     # b[2:] = b[2:].max()  # rectangle to square
-                    b[2:] = b[2:] * 1.2 + 3  # pad
+                    # UPDATE cancel pad
+                    # b[2:] = b[2:] * 1.2 + 3  # pad
                     b = xywh2xyxy(b.reshape(-1, 4)).ravel().astype(np.int)
 
                     b[[0, 2]] = np.clip(b[[0, 2]], 0, w)  # clip boxes outside of image
