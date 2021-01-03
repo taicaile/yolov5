@@ -208,9 +208,9 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 if tb_writer:
                     tb_writer.add_histogram('classes', c, 0)
 
-                from utils.plots import plot_classes, plot_labels_each
-                plot_classes(dataset, names, save_dir=save_dir)
-                plot_labels_each(names, labels, dataset.shapes, save_dir=save_dir, loggers=loggers)
+                from utils.plots import plot_dataset_for_all_classes, plot_single_label
+                plot_dataset_for_all_classes(dataset, names, save_dir=save_dir)
+                plot_single_label(names, labels, save_dir=save_dir, loggers=loggers)
 
             # Anchors
             if not opt.noautoanchor:
@@ -297,7 +297,12 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             # Forward
             with amp.autocast(enabled=cuda):
                 pred = model(imgs)  # forward
-                loss, loss_items = compute_loss(pred, targets.to(device), model)  # loss scaled by batch_size
+                # UPDATE, add imgs for virtualization
+                if True:
+                    loss, loss_items = compute_loss(pred, targets.to(device), model, imgs=imgs)  # loss scaled by batch_size
+                else:
+                    loss, loss_items = compute_loss(pred, targets.to(device), model)  # loss scaled by batch_size
+                
                 if rank != -1:
                     loss *= opt.world_size  # gradient averaged between devices in DDP mode
             
