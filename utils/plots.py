@@ -300,58 +300,57 @@ def plot_labels(labels, save_dir=Path(''), loggers=None):
             v.log({"Labels": [v.Image(str(x), caption=x.name) for x in save_dir.glob('*labels*.jpg')]})
 
 
-def plot_label(name, label, save_dir=Path(''), loggers=None):
-    # plot dataset labels
-    print(f'Plotting labels for {name} ')
-    c, b = label[:, 0], label[:, 1:].transpose()  # classes, boxes
-    nc = int(c.max() + 1)  # number of classes
-    colors = color_list()
-    x = pd.DataFrame(b.transpose(), columns=['x', 'y', 'width', 'height'])
-
-    # seaborn correlogram
-    sns.pairplot(x, corner=True, diag_kind='auto', kind='hist', diag_kws=dict(bins=50), plot_kws=dict(pmax=0.9))
-    plt.savefig(save_dir / f'{name}_correlogram_label.jpg', dpi=200)
-    plt.close()
-
-    # matplotlib labels
-    matplotlib.use('svg')  # faster
-    ax = plt.subplots(2, 2, figsize=(8, 8), tight_layout=True)[1].ravel()
-    ax[0].hist(c, bins=np.linspace(0, nc, nc + 1) - 0.5, rwidth=0.8)
-    ax[0].set_xlabel('classes')
-    sns.histplot(x, x='x', y='y', ax=ax[2], bins=50, pmax=0.9)
-    sns.histplot(x, x='width', y='height', ax=ax[3], bins=50, pmax=0.9)
-
-    # rectangles
-    label[:, 1:3] = 0.5  # center
-    label[:, 1:] = xywh2xyxy(label[:, 1:]) * 2000
-    img = Image.fromarray(np.ones((2000, 2000, 3), dtype=np.uint8) * 255)
-    for cls, *box in label[:1000]:
-        ImageDraw.Draw(img).rectangle(box, width=1, outline=colors[int(cls) % 10])  # plot
-    ax[1].imshow(img)
-    ax[1].axis('off')
-
-    for a in [0, 1, 2, 3]:
-        for s in ['top', 'right', 'left', 'bottom']:
-            ax[a].spines[s].set_visible(False)
-
-    plt.savefig(save_dir / f'{name}_label.jpg', dpi=200)
-    matplotlib.use('Agg')
-    plt.close()
-
-    # loggers
-    for k, v in loggers.items() or {}:
-        if k == 'wandb' and v:
-            v.log({"Labels": [v.Image(str(x), caption=x.name) for x in save_dir.glob('*_label.jpg')]})
-
-
-def plot_labels_each(names, labels, shapes, save_dir, loggers=None):
-    if len(names)>1:
+def plot_single_label(names, labels, save_dir=Path(''), loggers=None):
+    if isinstance(names, list):
         for i,name in enumerate(names[:10]):
             cur_labels = labels[labels[:,0]==i]
             if cur_labels.size>0:
-                plot_label(name, cur_labels, save_dir=save_dir, loggers=loggers)
+                plot_single_label(name, cur_labels, save_dir=save_dir, loggers=loggers)
+    else:
+        # plot dataset labels
+        print(f'Plotting labels for {names} ')
+        c, b = labels[:, 0], labels[:, 1:].transpose()  # classes, boxes
+        nc = int(c.max() + 1)  # number of classes
+        colors = color_list()
+        x = pd.DataFrame(b.transpose(), columns=['x', 'y', 'width', 'height'])
 
-def plot_classes(dataset, names, save_dir=''):
+        # seaborn correlogram
+        sns.pairplot(x, corner=True, diag_kind='auto', kind='hist', diag_kws=dict(bins=50), plot_kws=dict(pmax=0.9))
+        plt.savefig(save_dir / f'{names}_correlogram_label.jpg', dpi=200)
+        plt.close()
+
+        # matplotlib labels
+        matplotlib.use('svg')  # faster
+        ax = plt.subplots(2, 2, figsize=(8, 8), tight_layout=True)[1].ravel()
+        ax[0].hist(c, bins=np.linspace(0, nc, nc + 1) - 0.5, rwidth=0.8)
+        ax[0].set_xlabel('classes')
+        sns.histplot(x, x='x', y='y', ax=ax[2], bins=50, pmax=0.9)
+        sns.histplot(x, x='width', y='height', ax=ax[3], bins=50, pmax=0.9)
+
+        # rectangles
+        labels[:, 1:3] = 0.5  # center
+        labels[:, 1:] = xywh2xyxy(labels[:, 1:]) * 2000
+        img = Image.fromarray(np.ones((2000, 2000, 3), dtype=np.uint8) * 255)
+        for cls, *box in labels[:1000]:
+            ImageDraw.Draw(img).rectangle(box, width=1, outline=colors[int(cls) % 10])  # plot
+        ax[1].imshow(img)
+        ax[1].axis('off')
+
+        for a in [0, 1, 2, 3]:
+            for s in ['top', 'right', 'left', 'bottom']:
+                ax[a].spines[s].set_visible(False)
+
+        plt.savefig(save_dir / f'{names}_label.jpg', dpi=200)
+        matplotlib.use('Agg')
+        plt.close()
+
+        # loggers
+        for k, v in loggers.items() or {}:
+            if k == 'wandb' and v:
+                v.log({"Labels": [v.Image(str(x), caption=x.name) for x in save_dir.glob('*_label.jpg')]})
+
+
+def plot_dataset_for_all_classes(dataset, names, save_dir=''):
     from utils.datasets import letterbox
     # for each class, plot 10 images
     nc = len(names)
