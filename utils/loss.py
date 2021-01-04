@@ -86,7 +86,7 @@ class QFocalLoss(nn.Module):
 
 
 from utils.iplot import plot_build_targets
-def compute_loss(p, targets, model, imgs):  # predictions, targets, model
+def compute_loss(p, targets, model, imgs=None):  # predictions, targets, model
     device = targets.device
     lcls, lbox, lobj = torch.zeros(1, device=device), torch.zeros(1, device=device), torch.zeros(1, device=device)
     # tcls 包含每个输出层检测出来的类别
@@ -100,7 +100,8 @@ def compute_loss(p, targets, model, imgs):  # predictions, targets, model
 
     # DEBUG
     # plot anchors
-    # plot_build_targets(imgs, targets, model, tcls, tbox, indices)
+    # if imgs is not None:
+    #   plot_build_targets(imgs, targets, model, tcls, tbox, indices)
 
     h = model.hyp  # hyperparameters
 
