@@ -186,7 +186,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     dataloader, dataset = create_dataloader(train_path, imgsz, batch_size, gs, opt,
                                             hyp=hyp, augment=True, cache=opt.cache_images, rect=opt.rect, rank=rank,
                                             world_size=opt.world_size, workers=opt.workers,
-                                            image_weights=opt.image_weights)
+                                            image_weights=opt.image_weights, cut_paste=opt.cut_paste)
     mlc = np.concatenate(dataset.labels, 0)[:, 0].max()  # max label class
     nb = len(dataloader)  # number of batches
     assert mlc < nc, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g' % (mlc, nc, opt.data, nc - 1)
@@ -371,8 +371,6 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                     if wandb:
                         wandb.log({"metrics/mAP_"+ tag: score, 'step/epoch': epoch})  # W&B
 
-            # TODO record maps for each class
-            # TODO record targets for each class for the whole test dataset
             # Write
             with open(results_file, 'a') as f:
                 f.write(s + '%10.4g' * 7 % results + '\n')  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
@@ -487,6 +485,7 @@ if __name__ == '__main__':
     parser.add_argument('--project', default='runs/train', help='save to project/name')
     parser.add_argument('--name', default='exp', help='save to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
+    parser.add_argument('--cut-paste', type=str, default=None, help='if use cutpaste function to paste objects')
     opt = parser.parse_args()
 
     # Set DDP variables
