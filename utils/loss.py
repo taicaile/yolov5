@@ -136,8 +136,26 @@ def compute_loss(p, targets, model, imgs=None):  # predictions, targets, model
             # 16 个图片，每一个layer有三个anchor，第一层grid是80×80(img_size=640)
             # image index, anchor index, grid y, grid x
             # 注意，这里已经是筛选 grid x index和 grid y index 之后的target
-            # 
+            '''
+            ISSUE, 每个layer的每个cell最多可以预测5个target, 每个target最多有三个anchor, 也就是每个cell最多15个targets.
+            但是预测网络的输出是每个layer的每个cell最多可以输出三个目标。此时就会有重复利用的问题。
+            b, a, gj, gi 是build targets 返回的index， 可能包含重复的index。
+            下面是在预测的网格中取出包含targets的预测值， ps为仅包含build targets产生的targets。
+            ps = pi[b, a, gj, gi]
+            ps也可能包含重复的预测，此时的预测和真正的target的box并不匹配。
+            同一个 b,a,gj,gi 可以代表不同的目标，但是ps仅包含唯一的目标。
+            '''
+            '''
+            (Pdb) p b.shape
+            torch.Size([303])
+            unique, counts = np.unique(np.stack((b,a,gj,gi), axis=0).T, return_counts=True, axis=0)
+            (Pdb) unique.shape
+            (300, 4)
+            说明包含重复的index
+            '''
             ps = pi[b, a, gj, gi]  # prediction subset corresponding to targets
+            # unique, counts = np.unique(ps.detach().clone().numpy(), return_counts=True, axis=0)
+            # sum(counts>1)=3, the result greater than 1 saying use same prediction corresponding multiple targets.
             # ps.shape : [484, 85] 
             # Regression
             # sigmoid range [0,1], pxy range [-0.5,1.5]
