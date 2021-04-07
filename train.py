@@ -498,6 +498,7 @@ if __name__ == '__main__':
         check_git_status()
 
     # Resume
+    # resume 可以指定reume train weight path, 或者自动搜索最新一次保存的 last.pt 的路径
     if opt.resume:  # resume an interrupted run
         ckpt = opt.resume if isinstance(opt.resume, str) else get_latest_run()  # specified or most recent path
         assert os.path.isfile(ckpt), 'ERROR: --resume checkpoint does not exist'
