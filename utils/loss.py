@@ -158,7 +158,7 @@ def compute_loss(p, targets, model, imgs=None):  # predictions, targets, model
             # sum(counts>1)=3, the result greater than 1 saying use same prediction corresponding multiple targets.
             # ps.shape : [484, 85] 
             # Regression
-            # sigmoid range [0,1], pxy range [-0.5,1.5]
+            # sigmoid range [0,1], pxy range [-0.5,1.5], 0.5是网格的中心，－0.5和1.5代表临近网格的中心。
             # 计算检测头输出的x,y, 这里已经不包含grid index， x和y分别是对应当前grid网格内的偏移
             pxy = ps[:, :2].sigmoid() * 2. - 0.5
             # wh 是 anchor 的0－4倍
