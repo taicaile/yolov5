@@ -1,11 +1,15 @@
-# PyTorch utils
+# YOLOv5 PyTorch utils
 
+import datetime
 import logging
 import math
 import os
+import platform
+import subprocess
 import time
 from contextlib import contextmanager
 from copy import deepcopy
+from pathlib import Path
 
 import torch
 import torch.backends.cudnn as cudnn
@@ -36,42 +40,56 @@ def init_torch_seeds(seed=0):
     # Speed-reproducibility tradeoff https://pytorch.org/docs/stable/notes/randomness.html
     torch.manual_seed(seed)
     if seed == 0:  # slower, more reproducible
-        cudnn.deterministic = True
-        cudnn.benchmark = False
+        cudnn.benchmark, cudnn.deterministic = False, True
     else:  # faster, less reproducible
-        cudnn.deterministic = False
-        cudnn.benchmark = True
+        cudnn.benchmark, cudnn.deterministic = True, False
+
+
+def date_modified(path=__file__):
+    # return human-readable file modification date, i.e. '2021-3-26'
+    t = datetime.datetime.fromtimestamp(Path(path).stat().st_mtime)
+    return f'{t.year}-{t.month}-{t.day}'
+
+
+def git_describe(path=Path(__file__).parent):  # path must be a directory
+    # return human-readable git description, i.e. v5.0-5-g3e25f1e https://git-scm.com/docs/git-describe
+    s = f'git -C {path} describe --tags --long --always'
+    try:
+        return subprocess.check_output(s, shell=True, stderr=subprocess.STDOUT).decode()[:-1]
+    except subprocess.CalledProcessError as e:
+        return ''  # not a git repository
 
 
 def select_device(device='', batch_size=None):
     # device = 'cpu' or '0' or '0,1,2,3'
-    cpu_request = device.lower() == 'cpu'
-    if device and not cpu_request:  # if device requested other than 'cpu'
+    s = f'YOLOv5 🚀 {git_describe() or date_modified()} torch {torch.__version__} '  # string
+    cpu = device.lower() == 'cpu'
+    if cpu:
+        os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # force torch.cuda.is_available() = False
+    elif device:  # non-cpu device requested
         os.environ['CUDA_VISIBLE_DEVICES'] = device  # set environment variable
-        assert torch.cuda.is_available(), 'CUDA unavailable, invalid device %s requested' % device  # check availablity
+        assert torch.cuda.is_available(), f'CUDA unavailable, invalid device {device} requested'  # check availability
 
-    cuda = False if cpu_request else torch.cuda.is_available()
+    cuda = not cpu and torch.cuda.is_available()
     if cuda:
-        c = 1024 ** 2  # bytes to MB
-        ng = torch.cuda.device_count()
-        if ng > 1 and batch_size:  # check that batch_size is compatible with device_count
-            assert batch_size % ng == 0, 'batch-size %g not multiple of GPU count %g' % (batch_size, ng)
-        x = [torch.cuda.get_device_properties(i) for i in range(ng)]
-        s = f'Using torch {torch.__version__} '
-        for i in range(0, ng):
-            if i == 1:
-                s = ' ' * len(s)
-            logger.info("%sCUDA:%g (%s, %dMB)" % (s, i, x[i].name, x[i].total_memory / c))
+        n = torch.cuda.device_count()
+        if n > 1 and batch_size:  # check that batch_size is compatible with device_count
+            assert batch_size % n == 0, f'batch-size {batch_size} not multiple of GPU count {n}'
+        space = ' ' * len(s)
+        for i, d in enumerate(device.split(',') if device else range(n)):
+            p = torch.cuda.get_device_properties(i)
+            s += f"{'' if i == 0 else space}CUDA:{d} ({p.name}, {p.total_memory / 1024 ** 2}MB)\n"  # bytes to MB
     else:
-        logger.info(f'Using torch {torch.__version__} CPU')
+        s += 'CPU\n'
 
-    logger.info('')  # skip a line
+    logger.info(s.encode().decode('ascii', 'ignore') if platform.system() == 'Windows' else s)  # emoji-safe
     return torch.device('cuda:0' if cuda else 'cpu')
 
 
 def time_synchronized():
     # pytorch-accurate time
-    torch.cuda.synchronize() if torch.cuda.is_available() else None
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
     return time.time()
 
 
@@ -111,7 +129,7 @@ def profile(x, ops, n=100, device=None):
         s_in = tuple(x.shape) if isinstance(x, torch.Tensor) else 'list'
         s_out = tuple(y.shape) if isinstance(y, torch.Tensor) else 'list'
         p = sum(list(x.numel() for x in m.parameters())) if isinstance(m, nn.Module) else 0  # parameters
-        print(f'{p:12.4g}{flops:12.4g}{dtf:16.4g}{dtb:16.4g}{str(s_in):>24s}{str(s_out):>24s}')
+        print(f'{p:12}{flops:12.4g}{dtf:16.4g}{dtb:16.4g}{str(s_in):>24s}{str(s_out):>24s}')
 
 
 def is_parallel(model):
@@ -173,7 +191,7 @@ def fuse_conv_and_bn(conv, bn):
     # prepare filters
     w_conv = conv.weight.clone().view(conv.out_channels, -1)
     w_bn = torch.diag(bn.weight.div(torch.sqrt(bn.eps + bn.running_var)))
-    fusedconv.weight.copy_(torch.mm(w_bn, w_conv).view(fusedconv.weight.size()))
+    fusedconv.weight.copy_(torch.mm(w_bn, w_conv).view(fusedconv.weight.shape))
 
     # prepare spatial bias
     b_conv = torch.zeros(conv.weight.size(0), device=conv.weight.device) if conv.bias is None else conv.bias
@@ -196,7 +214,7 @@ def model_info(model, verbose=False, img_size=640):
 
     try:  # FLOPS
         from thop import profile
-        stride = int(model.stride.max()) if hasattr(model, 'stride') else 32
+        stride = max(int(model.stride.max()), 32) if hasattr(model, 'stride') else 32
         img = torch.zeros((1, model.yaml.get('ch', 3), stride, stride), device=next(model.parameters()).device)  # input
         flops = profile(deepcopy(model), inputs=(img,), verbose=False)[0] / 1E9 * 2  # stride GFLOPS
         img_size = img_size if isinstance(img_size, list) else [img_size, img_size]  # expand if int/float
@@ -226,8 +244,8 @@ def load_classifier(name='resnet101', n=2):
     return model
 
 
-def scale_img(img, ratio=1.0, same_shape=False):  # img(16,3,256,416), r=ratio
-    # scales img(bs,3,y,x) by ratio
+def scale_img(img, ratio=1.0, same_shape=False, gs=32):  # img(16,3,256,416)
+    # scales img(bs,3,y,x) by ratio constrained to gs-multiple
     if ratio == 1.0:
         return img
     else:
@@ -235,7 +253,6 @@ def scale_img(img, ratio=1.0, same_shape=False):  # img(16,3,256,416), r=ratio
         s = (int(h * ratio), int(w * ratio))  # new size
         img = F.interpolate(img, size=s, mode='bilinear', align_corners=False)  # resize
         if not same_shape:  # pad/crop img
-            gs = 32  # (pixels) grid size
             h, w = [math.ceil(x * ratio / gs) * gs for x in (h, w)]
         return F.pad(img, [0, w - s[1], 0, h - s[0]], value=0.447)  # value = imagenet mean
 
