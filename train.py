@@ -507,7 +507,8 @@ if __name__ == '__main__':
     parser.add_argument('--entity', default=None, help='W&B entity')
     parser.add_argument('--name', default='exp', help='save to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
-    parser.add_argument('--cut-paste', type=str, default=None, help='if use cutpaste function to paste objects')
+    parser.add_argument('--cut-paste', type=int, nargs='+', default=None, help='pass class list to enable cut paste \
+                                                                                function. --cut-paste 1 2 3')
     parser.add_argument('--quad', action='store_true', help='quad dataloader')
     parser.add_argument('--linear-lr', action='store_true', help='linear LR')
     parser.add_argument('--label-smoothing', type=float, default=0.0, help='Label smoothing epsilon')
