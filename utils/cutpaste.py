@@ -140,7 +140,7 @@ class CutPaste:
     3, how to check which object is full or part of it.
     4, paste object
     '''
-    def __init__(self, path, img_size=640, classes=[]):
+    def __init__(self, path, img_size, classes):
         assert os.path.exists(path), f"The path:{path} for cut-paste is not valid!!!"
         self.img_size = img_size
         self.img_path, img_files, shapes = extract_boxes(path, img_size)
