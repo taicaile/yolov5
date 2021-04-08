@@ -350,12 +350,8 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         self.mosaic = self.augment and not self.rect  # load 4 images at a time into a mosaic (only during training)
         self.mosaic_border = [-img_size // 2, -img_size // 2]
         self.stride = stride
-        
-        self.cut_paste = cut_paste
-        if self.cut_paste:
-            # UPDATE : add cut_paste function to add more object of lower mAPs
-            from utils.cutpaste import CutPaste
-            self.cp = CutPaste(cut_paste)
+        # TODO shall check if the cut_paste parameters valid
+        self.cut_paste = cut_paste # cut_paste = [1,2,3]
 
         # 先扫描路径下的所有图片类型的文件
         self.path = path
@@ -396,6 +392,11 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         else:
             # 扫描图片和label文件
             cache, exists = self.cache_labels(cache_path, prefix), False  # cache
+
+        if self.cut_paste:
+            # TODO : add cut_paste function to add more object of lower mAPs
+            from utils.cutpaste import CutPaste
+            self.cp = CutPaste(path, img_size, classes=self.cut_paste)
 
         # Display cache
         nf, nm, ne, nc, n = cache.pop('results')  # found, missing, empty, corrupted, total

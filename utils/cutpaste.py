@@ -1,6 +1,4 @@
-from operator import index
 from pathlib import Path
-from numpy.lib.function_base import kaiser
 from tqdm import tqdm
 
 import numpy as np
@@ -8,6 +6,7 @@ import collections
 import random
 import shutil
 import cv2
+import os
 
 from utils.general import xywh2xyxy
 from utils.datasets import img_formats, img2label_paths
@@ -21,12 +20,12 @@ from utils.datasets import img_formats, img2label_paths
 '''
 
 
-def extract_boxes(path='../coco128/images/', img_size=640):
+def extract_boxes(path, img_size=640):
     imgFiles = collections.defaultdict(list)
     shapes = collections.defaultdict(list)
 
     path = Path(path)  # images dir
-    outDir = path.parent / 'classifier'
+    outDir = path.parent.with_suffix('.classifier')
     shutil.rmtree(outDir) if outDir.is_dir() else None  # remove existing
     files = list(path.rglob('*.*'))
     n = len(files)  # number of files
@@ -141,11 +140,12 @@ class CutPaste:
     3, how to check which object is full or part of it.
     4, paste object
     '''
-    def __init__(self, path='../coco128/images/', img_size=640):
+    def __init__(self, path, img_size, classes):
+        assert os.path.exists(path), f"The path:{path} for cut-paste is not valid!!!"
         self.img_size = img_size
         self.img_path, img_files, shapes = extract_boxes(path, img_size)
         self.img_files, self.shapes = filter_outliers(img_files, shapes)
-        self.classes = []
+        self.classes = classes
         self.update_weights()
     
     def load_image(self, c):
@@ -157,7 +157,8 @@ class CutPaste:
     def update_weights(self):
         # banlance object by mAPs of each objects
         # then decide how many objects needed to add this image
-        self.classes=[0,0,4]
+        # update self.classes
+        pass
 
     def cut_paste(self, img, labels):
         if not self.classes:
