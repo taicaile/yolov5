@@ -52,7 +52,7 @@ def train():
         url, f = f'https://github.com/ultralytics/yolov5/releases/download/v1.0/{os.path.basename(data)}.zip', 'tmp.zip'
         print(f'Downloading {url}...')
         torch.hub.download_url_to_file(url, f)
-        os.system(f'unzip -q {f} -d {data} && rm {f}')  # unzip
+        os.system(f'unzip -q {f} -d {os.path.dirname(data)} && rm {f}')  # unzip
 
     # Transforms
     trainform = T.Compose([T.RandomGrayscale(p=0.01),
