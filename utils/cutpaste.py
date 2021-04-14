@@ -20,12 +20,12 @@ from utils.datasets import img_formats, img2label_paths
 '''
 
 
-def extract_boxes(path, img_size=640):
+def cut_boxes(path, img_size=640):
     imgFiles = collections.defaultdict(list)
     shapes = collections.defaultdict(list)
 
     path = Path(path)  # images dir
-    outDir = path.parent.with_suffix('.classifier')
+    outDir = path.parent.with_suffix('.cutboxes')
     shutil.rmtree(outDir) if outDir.is_dir() else None  # remove existing
     files = list(path.rglob('*.*'))
     n = len(files)  # number of files
@@ -143,7 +143,7 @@ class CutPaste:
     def __init__(self, path, img_size, classes):
         assert os.path.exists(path), f"The path:{path} for cut-paste is not valid!!!"
         self.img_size = img_size
-        self.img_path, img_files, shapes = extract_boxes(path, img_size)
+        self.img_path, img_files, shapes = cut_boxes(path, img_size)
         self.img_files, self.shapes = filter_outliers(img_files, shapes)
         self.classes = classes
         self.update_weights()
