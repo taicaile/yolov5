@@ -12,6 +12,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
+import torch.utils.data
+
 import torchvision
 import torchvision.transforms as T
 from torch.cuda import amp
@@ -181,7 +183,7 @@ def train():
 
     # Show predictions
     images, labels = iter(testloader).next()
-    predicted = torch.max(model(images), 1)[1]
+    predicted = torch.max(model(images.to(device)), 1)[1]
     imshow(torchvision.utils.make_grid(images))
     print('GroundTruth: ', ' '.join('%5s' % names[labels[j]] for j in range(10)))
     print('  Predicted: ', ' '.join('%5s' % names[predicted[j]] for j in range(10)))
