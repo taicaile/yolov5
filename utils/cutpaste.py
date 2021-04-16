@@ -1,6 +1,6 @@
 from pathlib import Path
 from tqdm import tqdm
-
+from PIL import Image
 import numpy as np
 import collections
 import random
@@ -8,7 +8,7 @@ import shutil
 import cv2
 import os
 
-from utils.general import xywh2xyxy
+from utils.general import xywh2xyxy, xyxy2xywh
 from utils.datasets import img_formats, img2label_paths
 
 
@@ -23,10 +23,11 @@ from utils.datasets import img_formats, img2label_paths
 def extract_boxes(path, img_size=640):
     imgFiles = collections.defaultdict(list)
     shapes = collections.defaultdict(list)
-
+    imgs = []
     path = Path(path)  # images dir
-    outDir = path.parent.with_suffix('.classifier')
+    outDir = path.with_suffix('.classifier')
     shutil.rmtree(outDir) if outDir.is_dir() else None  # remove existing
+    print(f"extract boxes to path: {str(outDir)}")
     files = list(path.rglob('*.*'))
     n = len(files)  # number of files
     pbar = tqdm(files, total=n)
@@ -46,6 +47,7 @@ def extract_boxes(path, img_size=640):
             # labels
             lb_file = Path(img2label_paths([str(im_file)])[0])
             if Path(lb_file).exists():
+                imgs.append(im_file)
                 with open(lb_file, 'r') as f:
                     lb = np.array([x.split() for x in f.read().strip().splitlines()], dtype=np.float32)  # labels
 
@@ -67,12 +69,13 @@ def extract_boxes(path, img_size=640):
                     nb+=1
                     imgFiles[c].append((f)) # append image name, and image shape
                     shapes[c].append((b[3]-b[1], b[2]-b[0]))
+                
             nf+=1
             pbar.set_description(f"extract boxes: found:{nf}, boxes:{nb}")
 
     assert len(imgFiles)>0, f'no image found under : {path}'
 
-    return outDir, imgFiles, shapes
+    return imgFiles, shapes, imgs
 
 def bbox_iou(box1, box2):
     # Returns the min intersection over box1 or box2 area given box1, box2. 
@@ -95,32 +98,28 @@ def bbox_iou(box1, box2):
     # return max intersection over box1 or box2 area
     return inter_area / min(box1_area, box2_area)
     
-def look_vacant(image, labels, hw):
+def look_vacant(img, labels, hw):
     # image shape is (h, w, channel)
-    h, w, c = image.shape
+    h, w, c = img.shape
     assert c==3, 'channel order is not correct.'
-
+    assert hw[0]<h or hw[1]<w, "vacant height and width must be less than image height and width"
     retry = 0
     # retry 10 times
     while retry <= 100:
         # random generate left corner
-        if w-hw[1]<=0 or h-hw[0]<=0:
-            break
-        xmin = max(0, random.randint(0, w-hw[1]))
-        ymin = max(0, random.randint(0, h-hw[0]))
+        xmin,ymin = random.randint(0, w-hw[1]), random.randint(0, h-hw[0])
         # box1 int
-        box1 = np.array([xmin, ymin, hw[1], hw[0]]).reshape(-1,4).ravel().astype(np.float32)
+        box1 = np.array([xmin, ymin, xmin+hw[1], ymin+hw[0]]).reshape(-1,4).ravel().astype(np.float32)
         # convert box1 to float
-        box1[[0, 2]]/=w  # normalized width 0-1
-        box1[[1, 3]]/=h  # normalized height 0-1
+        # box1[[0, 2]]/=w  # normalized width 0-1
+        # box1[[1, 3]]/=h  # normalized height 0-1
         # box1[0],box1[2] =  box1[0]/w, box1[1]/w
         # box1[1],box1[3] =  box1[1]/h, box1[3]/h
-
-        for box in xywh2xyxy(labels[:, -4:]):
+        for box in labels[:, -4:]:
             # box is float
             # calc iou, iou needs less than 0.2
             iou = bbox_iou(box1, box)
-            if iou > 0.2:
+            if iou > 0:
                 break
         else:
             return (xmin,ymin)
@@ -140,19 +139,26 @@ class CutPaste:
     3, how to check which object is full or part of it.
     4, paste object
     '''
-    def __init__(self, path, img_size, classes):
+    def __init__(self, path, img_size):
         assert os.path.exists(path), f"The path:{path} for cut-paste is not valid!!!"
         self.img_size = img_size
-        self.img_path, img_files, shapes = extract_boxes(path, img_size)
+        img_files, shapes, self.imgs = extract_boxes(path, img_size)
+        self.class_nums = {}
+        for c in img_files:
+            self.class_nums[c] = len(img_files[c])
+
         self.img_files, self.shapes = filter_outliers(img_files, shapes)
-        self.classes = classes
-        self.update_weights()
+        self.init_weights()
     
-    def load_image(self, c):
+    def random_load_image(self, c):
         index = random.randint(0, len(self.img_files[c])-1)
         img = cv2.imread(str(self.img_files[c][index]))  # BGR
         # img = img[:, :, ::-1].transpose(2, 0, 1) # BGR to RGB, to 3x416x416
         return img
+
+    def init_weights(self):
+        maxnum = max(self.class_nums.values())
+        self.weights = ((maxnum-np.array(list(self.class_nums.values())))/len(self.imgs)).tolist()
 
     def update_weights(self):
         # banlance object by mAPs of each objects
@@ -161,8 +167,6 @@ class CutPaste:
         pass
 
     def cut_paste(self, img, labels):
-        if not self.classes:
-            return img, labels
 
         assert img.shape[2] == 3, "channel order is not corrects"
         assert img.shape == (self.img_size, self.img_size, 3), f"image shape does not matched \
@@ -171,26 +175,42 @@ class CutPaste:
         
         newimg = img.copy()
         newlabels = labels.copy()
-        for c in [c for c in self.classes if self.img_files[c]]:
-            # get image for this target
-            c_img = self.load_image(c)
-            c_hw = c_img.shape[:2]
-            # get the center for this target
-            x, y = look_vacant(img, newlabels, c_hw)
-            if x is not None and y is not None:
-                newimg[y:y+c_hw[0], x:x+c_hw[1]] = c_img
-                label = np.array([c,x,y,x+c_hw[1],y+c_hw[0]],dtype=np.float32, ndmin=2) # class, xyxy
-                newlabels = np.concatenate((newlabels, label), axis=0)
+
+        for c in [c for c in self.class_nums if self.img_files[c] and self.weights[c]>0]:
+            prob = self.weights[c]
+            while prob>0:
+                if prob<1 and random.random()>prob:
+                    break
+                prob-=1
+                # get image for this target
+                c_img = self.random_load_image(c)
+                c_hw = c_img.shape[:2]
+                # get the center for this target
+                x, y = look_vacant(img, newlabels, c_hw)
+                if x is not None and y is not None:
+                    newimg[y:y+c_hw[0], x:x+c_hw[1]] = c_img
+                    label = np.array([c,x,y,x+c_hw[1],y+c_hw[0]],dtype=np.float32, ndmin=2) # class, xyxy
+                    newlabels = np.concatenate((newlabels, label), axis=0)
 
         # Visualize
-        # import matplotlib.pyplot as plt
-        # ax = plt.subplots(1, 2, figsize=(12, 6))[1].ravel()
-        # ax[0].imshow(img[:, :, ::-1])  # base
-        # ax[0].set_title('original image')
-        # ax[1].imshow(newimg[:, :, ::-1])  # warped
-        # ax[1].set_title('new image')
-        # plt.savefig('compare.jpg')
-
+        flag = False
+        # flag = True
+        if flag:
+            import matplotlib.pyplot as plt
+            ax = plt.subplots(1, 2, figsize=(12, 6))[1].ravel()
+            ax[0].imshow(img[:, :, ::-1]), ax[0].set_title('original image')
+            ax[1].imshow(newimg[:, :, ::-1]), ax[1].set_title('new image')
+            plt.savefig('compare.jpg')
+            # for save new label and new image
+            new = newlabels.copy()
+            h,w,c = newimg.shape
+            new[:,1:] = xyxy2xywh(new[:,1:])
+            new = new.T
+            new[1],new[3] = new[1]/w, new[3]/w
+            new[2],new[4] = new[2]/h, new[4]/h
+            np.savetxt("newlabels.txt", new.T, '%10.3g')
+            im = Image.fromarray(newimg)
+            im.save("newlabels.jpg")
         return newimg, newlabels
 
 def filter_outliers(img_files, shapes):
