@@ -21,9 +21,12 @@ from utils.datasets import img_formats, img2label_paths
 
 
 def extract_boxes(path, img_size=640):
-    imgFiles = collections.defaultdict(list)
-    shapes = collections.defaultdict(list)
-    imgs = []
+    '''
+    resize image, then extract target boxes
+    '''
+    boxes_files_dict = collections.defaultdict(list)
+    boxes_shapes_dict = collections.defaultdict(list)
+    img_files = []
     path = Path(path)  # images dir
     outDir = path.with_suffix('.classifier')
     shutil.rmtree(outDir) if outDir.is_dir() else None  # remove existing
@@ -47,7 +50,7 @@ def extract_boxes(path, img_size=640):
             # labels
             lb_file = Path(img2label_paths([str(im_file)])[0])
             if Path(lb_file).exists():
-                imgs.append(im_file)
+                img_files.append(im_file)
                 with open(lb_file, 'r') as f:
                     lb = np.array([x.split() for x in f.read().strip().splitlines()], dtype=np.float32)  # labels
 
@@ -67,15 +70,15 @@ def extract_boxes(path, img_size=640):
                     b[[1, 3]] = np.clip(b[[1, 3]], 0, h)
                     assert cv2.imwrite(str(f), im[b[1]:b[3], b[0]:b[2]]), f'box failure in {f}'
                     nb+=1
-                    imgFiles[c].append((f)) # append image name, and image shape
-                    shapes[c].append((b[3]-b[1], b[2]-b[0]))
+                    boxes_files_dict[c].append((f)) # append image name, and image shape
+                    boxes_shapes_dict[c].append((b[3]-b[1], b[2]-b[0]))
                 
             nf+=1
             pbar.set_description(f"extract boxes: found:{nf}, boxes:{nb}")
 
-    assert len(imgFiles)>0, f'no image found under : {path}'
+    assert len(boxes_files_dict)>0, f'no image found under : {path}'
 
-    return imgFiles, shapes, imgs
+    return boxes_files_dict, boxes_shapes_dict, img_files
 
 def bbox_iou(box1, box2):
     # Returns the min intersection over box1 or box2 area given box1, box2. 
@@ -94,9 +97,8 @@ def bbox_iou(box1, box2):
     box1_area = (b1_x2 - b1_x1) * (b1_y2 - b1_y1) + 1e-16
     # box2 area
     box2_area = (b2_x2 - b2_x1) * (b2_y2 - b2_y1) + 1e-16
-
     # return max intersection over box1 or box2 area
-    return inter_area / min(box1_area, box2_area)
+    return inter_area / np.minimum(np.repeat(box1_area, box2_area.shape), box2_area)
     
 def look_vacant(img, labels, hw):
     # image shape is (h, w, channel)
@@ -108,21 +110,16 @@ def look_vacant(img, labels, hw):
     while retry <= 100:
         # random generate left corner
         xmin,ymin = random.randint(0, w-hw[1]), random.randint(0, h-hw[0])
-        # box1 int
         box1 = np.array([xmin, ymin, xmin+hw[1], ymin+hw[0]]).reshape(-1,4).ravel().astype(np.float32)
-        # convert box1 to float
-        # box1[[0, 2]]/=w  # normalized width 0-1
-        # box1[[1, 3]]/=h  # normalized height 0-1
-        # box1[0],box1[2] =  box1[0]/w, box1[1]/w
-        # box1[1],box1[3] =  box1[1]/h, box1[3]/h
-        for box in labels[:, -4:]:
-            # box is float
-            # calc iou, iou needs less than 0.2
-            iou = bbox_iou(box1, box)
-            if iou > 0:
-                break
-        else:
+        
+        iou = bbox_iou(box1, labels[:,1:])
+        if all(iou<0.2):
             return (xmin,ymin)
+        # for box in labels[:, -4:]:
+        #     # calc iou, iou needs less than 0.2
+        #     iou = bbox_iou(box1, box)
+        #     if iou > 0.2:
+        #         break
 
         retry+=1
 
@@ -131,52 +128,47 @@ def look_vacant(img, labels, hw):
 
 
 class CutPaste:
-    # TODO 
-    '''
-    scan custom-vehicles only
-    1, mannuly scan.
-    2, rebuid function, need to resize first when extract boxes.
-    3, how to check which object is full or part of it.
-    4, paste object
-    '''
+
     def __init__(self, path, img_size):
         assert os.path.exists(path), f"The path:{path} for cut-paste is not valid!!!"
         self.img_size = img_size
-        img_files, shapes, self.imgs = extract_boxes(path, img_size)
+        boxes_files_dict, boxes_shapes, self.imgs = extract_boxes(path, img_size)
         self.class_nums = {}
-        for c in img_files:
-            self.class_nums[c] = len(img_files[c])
+        for c in boxes_files_dict:
+            self.class_nums[c] = len(boxes_files_dict[c])
 
-        self.img_files, self.shapes = filter_outliers(img_files, shapes)
+        self.boxes_files_dict, self.boxes_shapes = filter_outliers(boxes_files_dict, boxes_shapes)
+        self.img_cache = collections.defaultdict(list)
+        for c in self.boxes_files_dict:
+            for img in self.boxes_files_dict[c]:
+                self.img_cache[c].append(cv2.imread(str(img)))
         self.init_weights()
     
     def random_load_image(self, c):
-        index = random.randint(0, len(self.img_files[c])-1)
-        img = cv2.imread(str(self.img_files[c][index]))  # BGR
-        # img = img[:, :, ::-1].transpose(2, 0, 1) # BGR to RGB, to 3x416x416
+        index = random.randint(0, len(self.boxes_files_dict[c])-1)
+        if not self.img_cache:
+            img = cv2.imread(str(self.boxes_files_dict[c][index]))  # BGR HWC
+        else:
+            img = self.img_cache[c][index]
         return img
 
     def init_weights(self):
         maxnum = max(self.class_nums.values())
         self.weights = ((maxnum-np.array(list(self.class_nums.values())))/len(self.imgs)).tolist()
 
-    def update_weights(self):
-        # banlance object by mAPs of each objects
-        # then decide how many objects needed to add this image
-        # update self.classes
-        pass
-
     def cut_paste(self, img, labels):
-
+        '''
+        img: HWC BGR
+        '''
         assert img.shape[2] == 3, "channel order is not corrects"
-        assert img.shape == (self.img_size, self.img_size, 3), f"image shape does not matched \
-                                            : {img.shape}, exp:{(self.img_size, self.img_size, 3)}"
+        assert img.shape == (self.img_size, self.img_size, 3), \
+                            f"image shape does not matched: {img.shape}, exp:{(self.img_size, self.img_size, 3)}"
         assert labels.shape[1] == 5, 'labels format does not matched'
         
         newimg = img.copy()
         newlabels = labels.copy()
 
-        for c in [c for c in self.class_nums if self.img_files[c] and self.weights[c]>0]:
+        for c in [c for c in self.class_nums if self.boxes_files_dict[c] and self.weights[c]>0]:
             prob = self.weights[c]
             while prob>0:
                 if prob<1 and random.random()>prob:
@@ -200,7 +192,7 @@ class CutPaste:
             ax = plt.subplots(1, 2, figsize=(12, 6))[1].ravel()
             ax[0].imshow(img[:, :, ::-1]), ax[0].set_title('original image')
             ax[1].imshow(newimg[:, :, ::-1]), ax[1].set_title('new image')
-            plt.savefig('compare.jpg')
+            plt.savefig('compare_cutpaste_before_after.jpg')
             # for save new label and new image
             new = newlabels.copy()
             h,w,c = newimg.shape
@@ -208,9 +200,9 @@ class CutPaste:
             new = new.T
             new[1],new[3] = new[1]/w, new[3]/w
             new[2],new[4] = new[2]/h, new[4]/h
-            np.savetxt("newlabels.txt", new.T, '%10.3g')
+            np.savetxt("cut_paste.txt", new.T, '%10.3g')
             im = Image.fromarray(newimg)
-            im.save("newlabels.jpg")
+            im.save("cut_paste.jpg")
         return newimg, newlabels
 
 def filter_outliers(img_files, shapes):
