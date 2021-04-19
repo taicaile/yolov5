@@ -1029,12 +1029,14 @@ def flatten_recursive(path='../coco128'):
         shutil.copyfile(file, new_path / Path(file).name)
 
 
-def extract_boxes(path='../coco128/'):  # from utils.datasets import *; extract_boxes('../coco128')
+def extract_boxes(path='../coco128/', weights=(0.8, 0.2, 0), classes=[]):  # from utils.datasets import *; extract_boxes('../coco128')
     # Convert detection dataset into classification dataset, with one directory per class
 
     path = Path(path)  # images dir
-    outDir = path.parent / 'classifier'
-    shutil.rmtree(outDir) if outDir.is_dir() else None  # remove existing
+    outDir = path.with_suffix('.classifier')
+    trainDir,testDir,valDir = outDir/'train', outDir/'test', outDir/'val'
+    outs = [trainDir,testDir,valDir]
+    [shutil.rmtree(o) for o in outs if o.is_dir()]  # remove existing
     files = list(path.rglob('*.*'))
     n = len(files)  # number of files
     for im_file in tqdm(files, total=n):
@@ -1051,7 +1053,8 @@ def extract_boxes(path='../coco128/'):  # from utils.datasets import *; extract_
 
                 for j, x in enumerate(lb):
                     c = int(x[0])  # class
-                    f = outDir / f'{c}' / f'{path.stem}_{im_file.stem}_{j}.jpg'  # new filename
+                    out = random.choices(outs, weights=weights, k=1)[0]
+                    f = out / f'{c}' / f'{path.stem}_{im_file.stem}_{j}.jpg'  # new filename
                     if not f.parent.is_dir():
                         f.parent.mkdir(parents=True)
 

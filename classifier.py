@@ -1,6 +1,6 @@
 # YOLOv5 classifier training
 # Usage: python classifier.py --model yolov5s --data mnist --epochs 10 --img 128
-
+import collections
 import argparse
 import logging
 import math
@@ -12,6 +12,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
+import torch.utils.data
+
 import torchvision
 import torchvision.transforms as T
 from torch.cuda import amp
@@ -25,6 +27,12 @@ from utils.torch_utils import model_info, select_device, is_parallel
 logger = logging.getLogger(__name__)
 set_logging()
 
+def info_image_folder(dataset, name=''):
+    print(f"---- ImageFolder:{name} INFO ----")
+    idx_to_class = {v:k for k,v in dataset.class_to_idx.items()}
+    maxlen = max(map(len,idx_to_class.values()))
+    for key,value in collections.Counter(dataset.targets).items():
+        print(f"{idx_to_class[key]:>{maxlen}} : {value}")
 
 # Show images
 def imshow(img):
@@ -44,10 +52,10 @@ def train():
     wdir.mkdir(parents=True, exist_ok=True)  # make dir
     last, best = wdir / 'last.pt', wdir / 'best.pt'
 
-    if not os.path.isabs(data):
+    # Download Dataset
+    if not os.path.isabs(data) and os.path.basename(data)==data:
         data = f'../{data}'
 
-    # Download Dataset
     if not Path(data).is_dir():
         url, f = f'https://github.com/ultralytics/yolov5/releases/download/v1.0/{os.path.basename(data)}.zip', 'tmp.zip'
         print(f'Downloading {url}...')
@@ -59,24 +67,25 @@ def train():
                            T.RandomHorizontalFlip(p=0.5),
                            T.RandomAffine(degrees=1, translate=(.2, .2), scale=(1 / 1.5, 1.5),
                                           shear=(-1, 1, -1, 1), fill=(114, 114, 114)),
-                           # T.Resize([imgsz, imgsz]),  # very slow
+                           T.Resize([imgsz, imgsz]),  # very slow
                            T.ToTensor(),
                            T.Normalize((0.5, 0.5, 0.5), (0.25, 0.25, 0.25))])  # PILImage from [0, 1] to [-1, 1]
-    testform = T.Compose(trainform.transforms[-2:])
-
+    testform = T.Compose(trainform.transforms[-3:])
     # Dataloaders
     trainset = torchvision.datasets.ImageFolder(root=f'{data}/train', transform=trainform)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=nw)
-    testset = torchvision.datasets.ImageFolder(root=f'/{data}/test', transform=testform)
+    testset = torchvision.datasets.ImageFolder(root=f'{data}/test', transform=testform)
     testloader = torch.utils.data.DataLoader(testset, batch_size=bs, shuffle=False, num_workers=nw)
     names = trainset.classes
     nc = len(names)
     print(f'Training {opt.model} on {data} dataset with {nc} classes...')
+    info_image_folder(trainset,"trainset")
+    info_image_folder(testset,"testset")
 
     # Show images
-    # images, labels = iter(trainloader).next()
-    # imshow(torchvision.utils.make_grid(images[:16]))
-    # print(' '.join('%5s' % names[labels[j]] for j in range(16)))
+    images, labels = iter(trainloader).next()
+    imshow(torchvision.utils.make_grid(images[:16]))
+    print(' '.join('%5s' % names[labels[j]] for j in range(16)))
 
     # Model
     if opt.model.startswith('yolov5'):
@@ -146,7 +155,7 @@ def train():
             # Test
             if i == len(pbar) - 1:
                 fitness = test(model, testloader, names, criterion, pbar=pbar)  # test
-
+        pbar.close()
         # Scheduler
         scheduler.step()
 
@@ -159,7 +168,7 @@ def train():
         if (not opt.nosave) or final_epoch:
             ckpt = {'epoch': epoch,
                     'best_fitness': best_fitness,
-                    'model': deepcopy(model.module if is_parallel(model) else model).half(),
+                    'model': deepcopy(model.module if is_parallel(model) else model),
                     'optimizer': None}
 
             # Save last, best and delete
@@ -174,10 +183,26 @@ def train():
 
     # Show predictions
     images, labels = iter(testloader).next()
-    predicted = torch.max(model(images), 1)[1]
+    predicted = torch.max(model(images.to(device)), 1)[1]
     imshow(torchvision.utils.make_grid(images))
-    print('GroundTruth: ', ' '.join('%5s' % names[labels[j]] for j in range(4)))
-    print('Predicted: ', ' '.join('%5s' % names[predicted[j]] for j in range(4)))
+    print('GroundTruth: ', ' '.join('%5s' % names[labels[j]] for j in range(10)))
+    print('  Predicted: ', ' '.join('%5s' % names[predicted[j]] for j in range(10)))
+
+def detect():
+    bs,data,imgsz,nw= opt.batch_size,opt.data,opt.img_size,min(os.cpu_count(), opt.workers)
+
+    testform = T.Compose([T.Resize([imgsz, imgsz]),  # very slow
+                           T.ToTensor(),
+                           T.Normalize((0.5, 0.5, 0.5), (0.25, 0.25, 0.25))])  
+                           # PILImage from [0, 1] to [-1, 1]
+    testset = torchvision.datasets.ImageFolder(root=f'{data}/test', transform=testform)
+    testloader = torch.utils.data.DataLoader(testset, batch_size=bs, shuffle=False, num_workers=nw)
+    names = testset.classes
+
+    model = torch.load(opt.weight, map_location=device)['model'].to(device)
+    model.eval()
+
+    test(model, testloader, names, verbose=True)  # test
 
 
 def test(model, dataloader, names, criterion=None, verbose=False, pbar=None):
@@ -201,10 +226,10 @@ def test(model, dataloader, names, criterion=None, verbose=False, pbar=None):
     accuracy = correct.mean().item()
     if verbose:  # all classes
         print(f"{'class':10s}{'number':10s}{'accuracy':10s}")
-        print(f"{'all':10s}{correct.shape[0]:10s}{accuracy:10.5g}")
+        print(f"{'all':10s}{str(correct.shape[0]):10s}{accuracy:10.5g}")
         for i, c in enumerate(names):
             t = correct[targets == i]
-            print(f"{c:10s}{t.shape[0]:10s}{t.mean().item():10.5g}")
+            print(f"{c:10s}{str(t.shape[0]):10s}{t.mean().item():10.5g}")
 
     return accuracy
 
@@ -226,6 +251,8 @@ if __name__ == '__main__':
     parser.add_argument('--project', default='runs/train', help='save to project/name')
     parser.add_argument('--name', default='exp', help='save to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
+    parser.add_argument('--detect', action='store_true', help='detect only')
+    parser.add_argument('--weight', type=str, help='weight file path for model')
     opt = parser.parse_args()
 
     # Checks
@@ -239,5 +266,8 @@ if __name__ == '__main__':
     opt.save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok | opt.evolve)  # increment run
     resize = torch.nn.Upsample(size=(opt.img_size, opt.img_size), mode='bilinear', align_corners=False)  # image resize
 
-    # Train
-    train()
+    if not opt.detect:
+        # Train
+        train()
+    else:
+        detect()
