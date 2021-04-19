@@ -98,16 +98,15 @@ def bbox_iou(box1, box2):
     # box2 area
     box2_area = (b2_x2 - b2_x1) * (b2_y2 - b2_y1) + 1e-16
     # return max intersection over box1 or box2 area
-    return inter_area / np.minimum(np.repeat(box1_area, box2_area.shape), box2_area)
+    return inter_area / np.minimum(box1_area, box2_area)
     
 def look_vacant(img, labels, hw):
     # image shape is (h, w, channel)
     h, w, c = img.shape
     assert c==3, 'channel order is not correct.'
     assert hw[0]<h or hw[1]<w, "vacant height and width must be less than image height and width"
-    retry = 0
-    # retry 10 times
-    while retry <= 100:
+    # retry 100 times
+    for _ in range(100):
         # random generate left corner
         xmin,ymin = random.randint(0, w-hw[1]), random.randint(0, h-hw[0])
         box1 = np.array([xmin, ymin, xmin+hw[1], ymin+hw[0]]).reshape(-1,4).ravel().astype(np.float32)
@@ -115,15 +114,7 @@ def look_vacant(img, labels, hw):
         iou = bbox_iou(box1, labels[:,1:])
         if all(iou<0.2):
             return (xmin,ymin)
-        # for box in labels[:, -4:]:
-        #     # calc iou, iou needs less than 0.2
-        #     iou = bbox_iou(box1, box)
-        #     if iou > 0.2:
-        #         break
 
-        retry+=1
-
-    # print("no vacant found")
     return (None, None)
 
 
