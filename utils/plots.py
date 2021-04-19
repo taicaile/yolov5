@@ -54,21 +54,25 @@ def butter_lowpass_filtfilt(data, cutoff=1500, fs=50000, order=5):
     return filtfilt(b, a, data)  # forward-backward filter
 
 
-def plot_one_box(x, img, color=None, label=None, line_thickness=3):
+def plot_one_box(x, img, color=None, label=None, line_thickness=None):
     # Plots one bounding box on image img
     # tl = line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thickness
     if isinstance(x[0], torch.Tensor):
         x = [_x.item() for _x in x]
-    tl = line_thickness or math.floor(0.01 * min(abs(x[2]-x[0]), abs(x[3]-x[1]))) + 1  # line/font thickness
+    minhw = int(min(x[2]-x[0], x[3]-x[1]))
+    maxhw = int(max(x[2]-x[0], x[3]-x[1]))
+    # tl = line_thickness or int(max(minhw//50,1))
+    tl = max(maxhw//200,1)
+    # font_scale = math.floor(0.01 * min) + 1  # line/font thickness
+    font_scale = np.clip(minhw/150, 0.1, 1.5)
     color = color or [random.randint(0, 255) for _ in range(3)]
     c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
     cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
     if label:
-        tf = max(tl - 1, 1)  # font thickness
-        t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
+        t_size = cv2.getTextSize(label, 0, fontScale=font_scale, thickness=tl)[0]
         c2 = c1[0] + t_size[0], c1[1] - t_size[1] - 3
         cv2.rectangle(img, c1, c2, color, -1, cv2.LINE_AA)  # filled
-        cv2.putText(img, label, (c1[0], c1[1] - 2), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
+        cv2.putText(img, label, (c1[0], c1[1] - 2), 0, font_scale, [225, 255, 255], thickness=tl, lineType=cv2.LINE_AA)
 
 
 def plot_one_box_PIL(box, img, color=None, label=None, line_thickness=None):

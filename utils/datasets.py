@@ -402,7 +402,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         if self.cut_paste:
             # TODO : add cut_paste function to add more object of lower mAPs
             from utils.cutpaste import CutPaste
-            self.cp = CutPaste(path, img_size, classes=self.cut_paste)
+            self.cp = CutPaste(self.cut_paste, img_size)
 
         # Display cache
         nf, nm, ne, nc, n = cache.pop('results')  # found, missing, empty, corrupted, total
