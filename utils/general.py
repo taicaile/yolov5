@@ -17,6 +17,7 @@ import pandas as pd
 import torch
 import torchvision
 import yaml
+from torchvision.transforms import functional as F
 
 from utils.google_utils import gsutil_getsize
 from utils.metrics import fitness
@@ -559,6 +560,9 @@ def print_mutation(hyp, results, yaml_file='hyp_evolved.yaml', bucket=''):
 
 
 def apply_classifier(x, model, img, im0):
+    # mean = np.array([0.5,0.5,0.5]).reshape(3,1,1)
+    # std = np.array([0.25,0.25,0.25]).reshape(3,1,1)
+    # pred->x: x1,y1,x2,y2,conf
     # applies a second stage classifier to yolo outputs
     im0 = [im0] if isinstance(im0, np.ndarray) else im0
     for i, d in enumerate(x):  # per image
@@ -567,8 +571,8 @@ def apply_classifier(x, model, img, im0):
 
             # Reshape and pad cutouts
             b = xyxy2xywh(d[:, :4])  # boxes
-            b[:, 2:] = b[:, 2:].max(1)[0].unsqueeze(1)  # rectangle to square
-            b[:, 2:] = b[:, 2:] * 1.3 + 30  # pad
+            # b[:, 2:] = b[:, 2:].max(1)[0].unsqueeze(1)  # rectangle to square
+            # b[:, 2:] = b[:, 2:] * 1.3 + 30  # pad
             d[:, :4] = xywh2xyxy(b).long()
 
             # Rescale boxes from img_size to im0 size
@@ -579,16 +583,17 @@ def apply_classifier(x, model, img, im0):
             ims = []
             for j, a in enumerate(d):  # per item
                 cutout = im0[i][int(a[1]):int(a[3]), int(a[0]):int(a[2])]
-                im = cv2.resize(cutout, (224, 224))  # BGR
+                im = cv2.resize(cutout, (64, 64))  # BGR
                 # cv2.imwrite('test%i.jpg' % j, cutout)
-
                 im = im[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
                 im = np.ascontiguousarray(im, dtype=np.float32)  # uint8 to float32
-                im /= 255.0  # 0 - 255 to 0.0 - 1.0
+                im = im/255.0
+                # im = (im/255.0-mean)/std # 0 - 255 to 0.0 - 1.0 to -1.0 - 1.0
+                im = F.normalize(torch.Tensor(im), (0.5, 0.5, 0.5), (0.25, 0.25, 0.25))
                 ims.append(im)
-
-            pred_cls2 = model(torch.Tensor(ims).to(d.device)).argmax(1)  # classifier prediction
-            x[i] = x[i][pred_cls1 == pred_cls2]  # retain matching class detections
+            pred_cls2 = model(torch.vstack(ims).to(d.device)).argmax(1)  # classifier prediction
+            # x[i] = x[i][pred_cls1 == pred_cls2]  # retain matching class detections
+            x[i][:,-1] = pred_cls2
 
     return x
 
