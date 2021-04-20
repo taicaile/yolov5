@@ -38,10 +38,11 @@ def detect(save_img=False):
         model.half()  # to FP16
 
     # Second-stage classifier
-    classify = False
-    if classify:
-        modelc = load_classifier(name='resnet101', n=2)  # initialize
-        modelc.load_state_dict(torch.load('weights/resnet101.pt', map_location=device)['model']).to(device).eval()
+    classify = True
+    if classify and opt.weightc:
+        # modelc = load_classifier(name='resnet101', n=2)  # initialize
+        # modelc.load_state_dict(torch.load('weights/resnet101.pt', map_location=device)['model']).to(device).eval()
+        modelc = torch.load(opt.weightc, map_location=device)['model'].to(device)
 
     # Set Dataloader
     vid_path, vid_writer = None, None
@@ -53,7 +54,11 @@ def detect(save_img=False):
         dataset = LoadImages(source, img_size=imgsz, stride=stride)
 
     # Get names and colors
-    names = model.module.names if hasattr(model, 'module') else model.names
+    if classify and opt.weightc:
+        names = modelc.names
+        names = ['bicycle', 'car', 'motorbike', 'bus', 'truck', 'jeepney', 'tricycle', 'other']
+    else:
+        names = model.module.names if hasattr(model, 'module') else model.names
     colors = [[random.randint(0, 255) for _ in range(3)] for _ in names]
 
     # Run inference
@@ -149,6 +154,7 @@ def detect(save_img=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default='yolov5s.pt', help='model.pt path(s)')
+    parser.add_argument('--weightc', type=str, default='', help='classifier model.pt path(s)')
     parser.add_argument('--source', type=str, default='data/images', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.25, help='object confidence threshold')

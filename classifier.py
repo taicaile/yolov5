@@ -35,12 +35,12 @@ def info_image_folder(dataset, name=''):
         print(f"{idx_to_class[key]:>{maxlen}} : {value}")
 
 # Show images
-def imshow(img):
+def imshow(img, img_name='images.jpg'):
     import matplotlib.pyplot as plt
     import numpy as np
 
     plt.imshow(np.transpose((img / 2 + 0.5).numpy(), (1, 2, 0)))  # unnormalize
-    plt.savefig('images.jpg')
+    plt.savefig(img_name)
 
 
 def train():
@@ -71,7 +71,7 @@ def train():
                            T.ToTensor(),
                            T.Normalize((0.5, 0.5, 0.5), (0.25, 0.25, 0.25))])  # PILImage from [0, 1] to [-1, 1]
     testform = T.Compose(trainform.transforms[-3:])
-    # Dataloaders
+    # Dataloaders, RGB
     trainset = torchvision.datasets.ImageFolder(root=f'{data}/train', transform=trainform)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=nw)
     testset = torchvision.datasets.ImageFolder(root=f'{data}/test', transform=testform)
@@ -84,7 +84,7 @@ def train():
 
     # Show images
     images, labels = iter(trainloader).next()
-    imshow(torchvision.utils.make_grid(images[:16]))
+    imshow(torchvision.utils.make_grid(images[:16]), 'classifier.jpg')
     print(' '.join('%5s' % names[labels[j]] for j in range(16)))
 
     # Model
@@ -103,7 +103,8 @@ def train():
     else:  # try torchvision
         model = torchvision.models.__dict__[opt.model](pretrained=True)
         model.fc = nn.Linear(model.fc.weight.shape[1], nc)
-
+    
+    model.names = names
     # print(model)  # debug
     model_info(model)
 
@@ -134,10 +135,11 @@ def train():
         model.train()
         pbar = tqdm(enumerate(trainloader), total=len(trainloader))  # progress bar
         for i, (images, labels) in pbar:
-            images, labels = resize(images.to(device)), labels.to(device)
+            # images, labels = resize(images.to(device)), labels.to(device)
+            images, labels = images.to(device), labels.to(device)
 
             # Forward
-            with amp.autocast(enabled=cuda):
+            with amp.autocast(enabled=cuda): # mixed precision
                 loss = criterion(model(images), labels)
 
             # Backward
@@ -152,10 +154,10 @@ def train():
             mem = '%.3gG' % (torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0)  # (GB)
             pbar.desc = f"{'%s/%s' % (epoch + 1, epochs):10s}{mem:10s}{mloss / (i + 1):<12.3g}"
 
-            # Test
-            if i == len(pbar) - 1:
-                fitness = test(model, testloader, names, criterion, pbar=pbar)  # test
         pbar.close()
+        # Test
+        verbose = epoch%10==0 # print accuracy every 10 epochs
+        fitness = test(model, testloader, names, criterion, pbar=pbar,verbose=verbose)  # test
         # Scheduler
         scheduler.step()
 
@@ -195,7 +197,9 @@ def detect():
                            T.ToTensor(),
                            T.Normalize((0.5, 0.5, 0.5), (0.25, 0.25, 0.25))])  
                            # PILImage from [0, 1] to [-1, 1]
-    testset = torchvision.datasets.ImageFolder(root=f'{data}/test', transform=testform)
+    if (Path(data) /'test').exists():
+        data = str(Path(data)/'test')
+    testset = torchvision.datasets.ImageFolder(root=data, transform=testform)
     testloader = torch.utils.data.DataLoader(testset, batch_size=bs, shuffle=False, num_workers=nw)
     names = testset.classes
 
@@ -210,7 +214,9 @@ def test(model, dataloader, names, criterion=None, verbose=False, pbar=None):
     pred, targets, loss = [], [], 0
     with torch.no_grad():
         for images, labels in dataloader:
-            images, labels = resize(images.to(device)), labels.to(device)
+            # images, labels = resize(images.to(device)), labels.to(device)
+            images, labels = images.to(device), labels.to(device)
+
             y = model(images)
             pred.append(torch.max(y, 1)[1])
             targets.append(labels)
