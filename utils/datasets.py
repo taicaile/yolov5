@@ -1029,7 +1029,7 @@ def flatten_recursive(path='../coco128'):
         shutil.copyfile(file, new_path / Path(file).name)
 
 
-def extract_boxes(path='../coco128/', weights=(0.8, 0.2, 0), classes=[]):  # from utils.datasets import *; extract_boxes('../coco128')
+def extract_boxes(path='../coco128/', classes=[], weights=(0.8, 0.2, 0)):  # from utils.datasets import *; extract_boxes('../coco128')
     # Convert detection dataset into classification dataset, with one directory per class
 
     path = Path(path)  # images dir
@@ -1053,6 +1053,8 @@ def extract_boxes(path='../coco128/', weights=(0.8, 0.2, 0), classes=[]):  # fro
 
                 for j, x in enumerate(lb):
                     c = int(x[0])  # class
+                    if classes:
+                        c = classes[c]
                     out = random.choices(outs, weights=weights, k=1)[0]
                     f = out / f'{c}' / f'{path.stem}_{im_file.stem}_{j}.jpg'  # new filename
                     if not f.parent.is_dir():
