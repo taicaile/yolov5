@@ -38,8 +38,8 @@ def detect(save_img=False):
         model.half()  # to FP16
 
     # Second-stage classifier
-    classify = True
-    if classify and opt.weightc:
+    classify = bool(opt.weightc)
+    if classify:
         # modelc = load_classifier(name='resnet101', n=2)  # initialize
         # modelc.load_state_dict(torch.load('weights/resnet101.pt', map_location=device)['model']).to(device).eval()
         modelc = torch.load(opt.weightc, map_location=device)['model'].to(device)
@@ -54,7 +54,7 @@ def detect(save_img=False):
         dataset = LoadImages(source, img_size=imgsz, stride=stride)
 
     # Get names and colors
-    if classify and opt.weightc:
+    if classify:
         names = modelc.names
         names = ['bicycle', 'car', 'motorbike', 'bus', 'truck', 'jeepney', 'tricycle', 'other']
     else:
