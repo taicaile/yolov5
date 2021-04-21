@@ -591,7 +591,7 @@ def apply_classifier(x, model, img, im0):
                 # im = (im/255.0-mean)/std # 0 - 255 to 0.0 - 1.0 to -1.0 - 1.0
                 im = F.normalize(torch.Tensor(im), (0.5, 0.5, 0.5), (0.25, 0.25, 0.25))
                 ims.append(im)
-            pred_cls2 = model(torch.vstack(ims).to(d.device)).argmax(1)  # classifier prediction
+            pred_cls2 = model(torch.stack(ims).to(d.device)).argmax(1)  # classifier prediction
             # x[i] = x[i][pred_cls1 == pred_cls2]  # retain matching class detections
             x[i][:,-1] = pred_cls2
 
