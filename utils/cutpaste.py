@@ -142,7 +142,9 @@ class CutPaste:
         for c in boxes_files_dict:
             self.class_nums[c] = len(boxes_files_dict[c])
 
-        self.boxes_files_dict, self.boxes_shapes = filter_outliers(boxes_files_dict, boxes_shapes)
+        # disable filter function
+        # self.boxes_files_dict, self.boxes_shapes = filter_outliers(boxes_files_dict, boxes_shapes)
+        self.boxes_files_dict, self.boxes_shapes = boxes_files_dict, boxes_shapes
         self.img_cache = collections.defaultdict(list)
         for c in self.boxes_files_dict:
             for img in self.boxes_files_dict[c]:
@@ -161,7 +163,8 @@ class CutPaste:
     def init_weights(self):
         maxnum = max(self.class_nums.values())
         self.weights = ((maxnum-np.array(list(self.class_nums.values())))/len(self.imgs)).tolist()
-
+        self.weights = [w/max(self.weights) for w in self.weights]
+        print("cut-paste weight: %s" % self.weights)
     def cut_paste(self, img, labels):
         '''
         img: HWC BGR
