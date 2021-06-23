@@ -24,14 +24,27 @@ def extract_boxes(path, img_size=640):
     '''
     resize image, then extract target boxes
     '''
+    p = Path(path)  # images dir
+
+    if p.is_file():
+        files = []
+        with open(p, 'r') as t:
+            t = t.read().strip().splitlines()
+            files += [Path(x).absolute() for x in t]  # local to global path
+
+    elif p.is_dir():
+        files = list(p.rglob('*.*'))
+    else:
+        raise Exception(f"the path for extract boxes is invalid : {p.as_posix()}")
+
     boxes_files_dict = collections.defaultdict(list)
     boxes_shapes_dict = collections.defaultdict(list)
     img_files = []
-    path = Path(path)  # images dir
-    outDir = path.with_suffix('.classifier')
+    
+    outDir = files[0].parent.with_suffix('.classifier')
     shutil.rmtree(outDir) if outDir.is_dir() else None  # remove existing
     print(f"extract boxes to path: {str(outDir)}")
-    files = list(path.rglob('*.*'))
+    
     n = len(files)  # number of files
     pbar = tqdm(files, total=n)
     nf = nb = 0
@@ -121,9 +134,10 @@ def look_vacant(img, labels, hw):
 class CutPaste:
 
     def __init__(self, path, img_size):
-        assert os.path.exists(path), f"The path:{path} for cut-paste is not valid!!!"
+
         self.img_size = img_size
-        boxes_files_dict, boxes_shapes, self.imgs = extract_boxes(path, img_size)
+
+        boxes_files_dict, boxes_shapes, self.imgs = extract_boxes(path, self.img_size)
         self.class_nums = {}
         for c in boxes_files_dict:
             self.class_nums[c] = len(boxes_files_dict[c])
@@ -133,6 +147,7 @@ class CutPaste:
         for c in self.boxes_files_dict:
             for img in self.boxes_files_dict[c]:
                 self.img_cache[c].append(cv2.imread(str(img)))
+
         self.init_weights()
     
     def random_load_image(self, c):
