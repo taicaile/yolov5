@@ -103,6 +103,33 @@ class Bottleneck(nn.Module):
     def forward(self, x):
         return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
 
+class SELayer(nn.Module):
+    def __init__(self, channel, e=1.0):
+        super(SELayer, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        reduction = 16 * e
+        self.fc = nn.Sequential(
+            nn.Linear(channel, channel // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channel // reduction, channel, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y.expand_as(x) 
+
+class BottleneckSE(nn.Module):
+    # bottleneck with SELayer
+    def __init__(self, c1, c2, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, shortcut, groups, expansion
+        super(Bottleneck, self).__init__()
+        self.se1 = SELayer(c2, e=1.0)
+        self.add = shortcut and c1 == c2
+
+    def forward(self, x):
+        return x + self.se1(x) if self.add else self.se1(x)
 
 class BottleneckCSP(nn.Module):
     # CSP Bottleneck https://github.com/WongKinYiu/CrossStagePartialNetworks
@@ -136,6 +163,13 @@ class C3(nn.Module):
 
     def forward(self, x):
         return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), dim=1))
+
+class C3SE(C3):
+    # C3 module with SELayer()
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        c_ = int(c2 * e)
+        self.m = nn.Sequential(*[BottleneckSE(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
 
 
 class C3TR(C3):
