@@ -125,11 +125,14 @@ class BottleneckSE(nn.Module):
     # bottleneck with SELayer
     def __init__(self, c1, c2, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, shortcut, groups, expansion
         super(Bottleneck, self).__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1)
+        self.cv2 = Conv(c_, c2, 3, 1, g=g)
         self.se1 = SELayer(c2, e=1.0)
         self.add = shortcut and c1 == c2
 
     def forward(self, x):
-        return x + self.se1(x) if self.add else self.se1(x)
+        return x + self.se1(self.cv2(self.cv1(x))) if self.add else self.se1(self.cv2(self.cv1(x)))
 
 class BottleneckCSP(nn.Module):
     # CSP Bottleneck https://github.com/WongKinYiu/CrossStagePartialNetworks
