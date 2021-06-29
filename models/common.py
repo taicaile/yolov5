@@ -151,6 +151,55 @@ class BottleneckCSP(nn.Module):
         y1 = self.cv3(self.m(self.cv1(x)))
         y2 = self.cv2(x)
         return self.cv4(self.act(self.bn(torch.cat((y1, y2), dim=1))))
+# CBAM
+class ChannelAttention(nn.Module):
+    def __init__(self, in_planes, rotio=16):
+        super(ChannelAttention, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+
+        self.sharedMLP = nn.Sequential(
+            nn.Conv2d(in_planes, in_planes // rotio, 1, bias=False), nn.ReLU(),
+            nn.Conv2d(in_planes // rotio, in_planes, 1, bias=False))
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avgout = self.sharedMLP(self.avg_pool(x))
+        maxout = self.sharedMLP(self.max_pool(x))
+        return self.sigmoid(avgout + maxout)
+
+class SpatialAttention(nn.Module):
+    def __init__(self, kernel_size=7):
+        super(SpatialAttention, self).__init__()
+        assert kernel_size in (3,7), "kernel size must be 3 or 7"
+        padding = 3 if kernel_size == 7 else 1
+        self.conv = nn.Conv2d(2,1,kernel_size, padding=padding, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avgout = torch.mean(x, dim=1, keepdim=True)
+        maxout, _ = torch.max(x, dim=1, keepdim=True)
+        x = torch.cat([avgout, maxout], dim=1)
+        x = self.conv(x)
+        return self.sigmoid(x)
+
+class BottleneckCBAM(nn.Module):
+    # bottleneck with CBAM
+    def __init__(self, c1, c2, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, shortcut, groups, expansion
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1)
+        self.cv2 = Conv(c_, c2, 3, 1, g=g)
+        self.add = shortcut and c1 == c2
+        self.ca = ChannelAttention(c2)
+        self.sa = SpatialAttention()
+
+    def forward(self, x):
+        out = self.cv2(self.cv1(x))
+        out = self.ca(out) * out
+        out = self.sa(out) * out
+
+        return x + out if self.add else out
 
 
 class C3(nn.Module):
@@ -174,6 +223,12 @@ class C3SE(C3):
         c_ = int(c2 * e)
         self.m = nn.Sequential(*[BottleneckSE(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
 
+class C3CBAM(C3):
+    # CSP Bottleneck with 3 convolutions
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
+        super().__init__(c1, c2, n, shortcut, g, e)
+        c_ = int(c2 * e)
+        self.m = nn.Sequential(*[BottleneckCBAM(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
 
 class C3TR(C3):
     # C3 module with TransformerBlock()
