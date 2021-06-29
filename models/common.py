@@ -127,12 +127,13 @@ class BottleneckSE(nn.Module):
         super(Bottleneck, self).__init__()
         c_ = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, c_, 1, 1)
-        self.cv2 = Conv(c_, c2, 3, 1, g=g)
+        self.cv2 = Conv(c_, c2, 3, 1, g=g, act=False)
         self.se1 = SELayer(c2, e=1.0)
         self.add = shortcut and c1 == c2
+        self.act = nn.SiLU()
 
     def forward(self, x):
-        return x + self.se1(self.cv2(self.cv1(x))) if self.add else self.se1(self.cv2(self.cv1(x)))
+        return self.act(x + self.se1(self.cv2(self.cv1(x)))) if self.add else self.act(self.se1(self.cv2(self.cv1(x))))
 
 class BottleneckCSP(nn.Module):
     # CSP Bottleneck https://github.com/WongKinYiu/CrossStagePartialNetworks
