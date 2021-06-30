@@ -192,7 +192,8 @@ class BottleneckCBAM(nn.Module):
         self.cv2 = Conv(c_, c2, 3, 1, g=g, act=False)
         self.act = nn.SiLU()
         self.add = shortcut and c1 == c2
-        self.ca = ChannelAttention(c2)
+        # self.ca = ChannelAttention(c2)
+        self.ca = SELayer(c2, e=1.0)
         self.sa = SpatialAttention()
 
     def forward(self, x):
