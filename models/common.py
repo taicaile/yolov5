@@ -189,7 +189,8 @@ class BottleneckCBAM(nn.Module):
         super().__init__()
         c_ = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, c_, 1, 1)
-        self.cv2 = Conv(c_, c2, 3, 1, g=g)
+        self.cv2 = Conv(c_, c2, 3, 1, g=g, act=False)
+        self.act = nn.SiLU()
         self.add = shortcut and c1 == c2
         self.ca = ChannelAttention(c2)
         self.sa = SpatialAttention()
@@ -199,7 +200,7 @@ class BottleneckCBAM(nn.Module):
         out = self.ca(out) * out
         out = self.sa(out) * out
 
-        return x + out if self.add else out
+        return self.act(x + out) if self.add else self.act(out)
 
 
 class C3(nn.Module):
