@@ -183,6 +183,66 @@ class SpatialAttention(nn.Module):
         x = self.conv(x)
         return self.sigmoid(x)
 
+class SKConv(nn.Module):
+    def __init__(self, c2, m=2, r=2, g=1, s=1):
+        super().__init__()
+        d = max(int(c2 / r), 32)
+        self.convs = nn.ModuleList([])
+        for i in range(m):
+            # 使用不同kernel size的卷积
+            self.convs.append(
+                nn.Sequential(
+                    nn.Conv2d(c2,
+                              c2,
+                              kernel_size=3 + i * 2,
+                              stride=s,
+                              padding=1 + i,
+                              groups=g),
+                    nn.BatchNorm2d(c2),
+                    nn.SiLU(inplace=False))
+                )
+            
+        self.fc = nn.Linear(c2, d)
+        self.fcs = nn.ModuleList([])
+        for i in range(m):
+            self.fcs.append(nn.Linear(d, c2))
+        self.softmax = nn.Softmax(dim=1)
+
+    def forward(self, x):
+        outs = []
+        for conv in self.convs:
+            outs.append(conv(x).unsqueeze_(dim=1))
+        feacat = torch.cat(outs, dim=1)
+        
+        feasum_vec = self.fc(torch.sum(feacat, dim=1).mean(-1).mean(-1))
+        vectors = []
+        for fc in self.fcs:
+            vectors.append(fc(feasum_vec).unsqueeze_(dim=1))
+
+        attention_vectors = self.softmax(torch.cat(vectors, dim=1)).unsqueeze(-1).unsqueeze(-1)
+
+        fea_v = (feacat * attention_vectors).sum(dim=1)
+        return fea_v
+
+
+class BottleneckSK(nn.Module):
+    # bottleneck with CBAM
+    def __init__(self, c1, c2, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, shortcut, groups, expansion
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1)
+        self.cv2 = Conv(c_, c2, 3, 1, g=g, act=False)
+        self.act = nn.SiLU()
+        self.add = shortcut and c1 == c2
+        # self.ca = ChannelAttention(c2)
+        self.sk = SKConv(c2)
+
+    def forward(self, x):
+        out = self.cv2(self.cv1(x))
+        out = self.sk(out) * out
+
+        return self.act(x + out) if self.add else self.act(out)
+
 class BottleneckCBAM(nn.Module):
     # bottleneck with CBAM
     def __init__(self, c1, c2, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, shortcut, groups, expansion
@@ -224,6 +284,13 @@ class C3SE(C3):
         super().__init__(c1, c2, n, shortcut, g, e)
         c_ = int(c2 * e)
         self.m = nn.Sequential(*[BottleneckSE(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
+
+class C3SK(C3):
+    # C3 module with SELayer()
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        c_ = int(c2 * e)
+        self.m = nn.Sequential(*[BottleneckSK(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
 
 class C3CBAM(C3):
     # CSP Bottleneck with 3 convolutions
