@@ -104,14 +104,14 @@ class Bottleneck(nn.Module):
         return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
 
 class SELayer(nn.Module):
-    def __init__(self, channel, e=1.0):
+    def __init__(self, c2, e=1.0):
         super(SELayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        reduction = 16 * e
+        hc = int(e*c2/16)
         self.fc = nn.Sequential(
-            nn.Linear(channel, channel // reduction, bias=False),
+            nn.Linear(c2, hc, bias=False),
             nn.ReLU(inplace=True),
-            nn.Linear(channel // reduction, channel, bias=False),
+            nn.Linear(hc, c2, bias=False),
             nn.Sigmoid()
         )
 
