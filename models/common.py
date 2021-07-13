@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 from PIL import Image
 from torch.cuda import amp
+import torchvision.ops
 
 from utils.datasets import letterbox
 from utils.general import non_max_suppression, make_divisible, scale_coords, increment_path, xyxy2xywh
@@ -30,6 +31,36 @@ def DWConv(c1, c2, k=1, s=1, act=True):
     return Conv(c1, c2, k, s, g=math.gcd(c1, c2), act=act)
 
 
+class DeformableConv2D(nn.Module):
+    def __init__(self, c1, c2, k=1, s=1, p=None, groups=1, bias=False): # ch_in, ch_out, kernel, stride, padding, groups
+        super().__init__()
+        self.p = p
+        
+        self.offset_conv = nn.Conv2d(c1, 2*k*k, k, s, p, bias=True)
+
+        nn.init.constant_(self.offset_conv.weight, 0.)
+        nn.init.constant_(self.offset_conv.bias, 0.)
+        
+        self.modulator_conv = nn.Conv2d(c1, 1*k*k, k, s, p, bias=True)
+
+        nn.init.constant_(self.modulator_conv.weight, 0.)
+        nn.init.constant_(self.modulator_conv.bias, 0.)
+        
+        self.regular_conv = nn.Conv2d(c1, c2, k, s, p, bias=bias, groups=groups)
+    
+    def forward(self, x):
+        offset = self.offset_conv(x)
+        modulator = 2. * torch.sigmoid(self.modulator_conv(x))
+        
+        x = torchvision.ops.deform_conv2d(input=x, 
+                                          offset=offset, 
+                                          weight=self.regular_conv.weight, 
+                                          bias=self.regular_conv.bias, 
+                                          padding=self.p,
+                                          mask=modulator
+                                          )
+        return x
+
 class Conv(nn.Module):
     # Standard convolution
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):  # ch_in, ch_out, kernel, stride, padding, groups
@@ -44,6 +75,11 @@ class Conv(nn.Module):
     def fuseforward(self, x):
         return self.act(self.conv(x))
 
+class DConv(Conv):
+    # deformable convolution
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):  # ch_in, ch_out, kernel, stride, padding, groups
+        super().__init__(c1, c2, k, s, p, g, act)
+        self.conv = DeformableConv2D(c1, c2, k, s, autopad(k, p), groups=g, bias=False)
 
 class TransformerLayer(nn.Module):
     # Transformer layer https://arxiv.org/abs/2010.11929 (LayerNorm layers removed for better performance)
