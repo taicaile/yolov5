@@ -35,29 +35,30 @@ class DeformableConv2D(nn.Module):
     def __init__(self, c1, c2, k=1, s=1, p=None, groups=1, bias=False): # ch_in, ch_out, kernel, stride, padding, groups
         super().__init__()
         self.p = p
-        
+        self.stride = s if type(s) == tuple else (s, s)
         self.offset_conv = nn.Conv2d(c1, 2*k*k, k, s, p, bias=True)
 
         nn.init.constant_(self.offset_conv.weight, 0.)
         nn.init.constant_(self.offset_conv.bias, 0.)
-        
+
         self.modulator_conv = nn.Conv2d(c1, 1*k*k, k, s, p, bias=True)
 
         nn.init.constant_(self.modulator_conv.weight, 0.)
         nn.init.constant_(self.modulator_conv.bias, 0.)
         
         self.regular_conv = nn.Conv2d(c1, c2, k, s, p, bias=bias, groups=groups)
-    
+
     def forward(self, x):
         offset = self.offset_conv(x)
         modulator = 2. * torch.sigmoid(self.modulator_conv(x))
-        
-        x = torchvision.ops.deform_conv2d(input=x, 
-                                          offset=offset, 
-                                          weight=self.regular_conv.weight, 
-                                          bias=self.regular_conv.bias, 
+
+        x = torchvision.ops.deform_conv2d(input=x,
+                                          offset=offset,
+                                          weight=self.regular_conv.weight,
+                                          bias=self.regular_conv.bias,
                                           padding=self.p,
-                                          mask=modulator
+                                          mask=modulator,
+                                          stride=self.stride
                                           )
         return x
 
