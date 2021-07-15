@@ -174,6 +174,12 @@ class C3(nn.Module):
     def forward(self, x):
         return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), dim=1))
 
+class C3DCN(C3):
+    # C3 module with DCN
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        c_ = int(c2 * e)
+        self.cv3 = DConv(2 * c_, c2, 1)  # act=FReLU(c2)
 
 class C3TR(C3):
     # C3 module with TransformerBlock()
