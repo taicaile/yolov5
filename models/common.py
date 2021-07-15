@@ -140,6 +140,13 @@ class Bottleneck(nn.Module):
     def forward(self, x):
         return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
 
+class BottleneckDCN(Bottleneck):
+    # Standard BottleneckDCN
+    def __init__(self, c1, c2, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, shortcut, groups, expansion
+        super(BottleneckDCN, self).__init__(c1, c2, shortcut, g, e)
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = DConv(c1, c_, 1, 1)
+        self.cv2 = DConv(c_, c2, 3, 1, g=g)
 
 class BottleneckCSP(nn.Module):
     # CSP Bottleneck https://github.com/WongKinYiu/CrossStagePartialNetworks
@@ -179,7 +186,7 @@ class C3DCN(C3):
     def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
         super().__init__(c1, c2, n, shortcut, g, e)
         c_ = int(c2 * e)
-        self.cv3 = DConv(2 * c_, c2, 1)  # act=FReLU(c2)
+        self.m = nn.Sequential(*[BottleneckDCN(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
 
 class C3TR(C3):
     # C3 module with TransformerBlock()
