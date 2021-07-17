@@ -29,6 +29,18 @@ def DWConv(c1, c2, k=1, s=1, act=True):
     # Depthwise convolution
     return Conv(c1, c2, k, s, g=math.gcd(c1, c2), act=act)
 
+def drop_connect(x, training: bool = False, drop_connect_rate: float = 0.):
+    """Apply drop connect."""
+    if not training:
+        return x
+
+    keep_prob = 1 - drop_connect_rate
+    random_tensor = keep_prob + torch.rand(
+        (x.size()[0], 1, 1, 1), dtype=x.dtype, device=x.device)
+    random_tensor.floor_()  # binarize
+    output = x.div(keep_prob) * random_tensor
+    return output
+
 
 class Conv(nn.Module):
     # Standard convolution
@@ -93,16 +105,23 @@ class TransformerBlock(nn.Module):
 
 class Bottleneck(nn.Module):
     # Standard bottleneck
-    def __init__(self, c1, c2, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, shortcut, groups, expansion
+    def __init__(self, c1, c2, shortcut=True, g=1, e=0.5, p=0.2):  # ch_in, ch_out, shortcut, groups, expansion
         super(Bottleneck, self).__init__()
         c_ = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, c_, 1, 1)
         self.cv2 = Conv(c_, c2, 3, 1, g=g)
         self.add = shortcut and c1 == c2
+        self.p = p
 
     def forward(self, x):
-        return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
-
+        if not self.add:
+            return self.cv2(self.cv1(x))
+        
+        residual = x
+        if self.p>0.:
+            x = drop_connect(x,self.training,self.p)
+        
+        return residual + x
 
 class BottleneckCSP(nn.Module):
     # CSP Bottleneck https://github.com/WongKinYiu/CrossStagePartialNetworks
