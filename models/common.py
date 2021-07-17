@@ -16,6 +16,7 @@ from utils.datasets import letterbox
 from utils.general import non_max_suppression, make_divisible, scale_coords, increment_path, xyxy2xywh
 from utils.plots import color_list, plot_one_box
 from utils.torch_utils import time_synchronized
+from .dropblock import DropBlock2D, LinearScheduler
 
 
 def autopad(k, p=None):  # kernel, padding
@@ -162,13 +163,22 @@ class SPP(nn.Module):
 
 class Focus(nn.Module):
     # Focus wh information into c-space
-    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):  # ch_in, ch_out, kernel, stride, padding, groups
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True, drop_prob=0.2, block_size=3):  # ch_in, ch_out, kernel, stride, padding, groups
         super(Focus, self).__init__()
         self.conv = Conv(c1 * 4, c2, k, s, p, g, act)
         # self.contract = Contract(gain=2)
-
+        self.dropblock = LinearScheduler(
+            DropBlock2D(drop_prob=drop_prob, block_size=block_size),
+            start_value=0.,
+            stop_value=drop_prob,
+            nr_steps=5e3
+            )
     def forward(self, x):  # x(b,c,w,h) -> y(b,4c,w/2,h/2)
-        return self.conv(torch.cat([x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]], 1))
+        self.dropblock.step()
+        return self.conv(self.dropblock(torch.cat([x[..., ::2, ::2], 
+                                                  x[..., 1::2, ::2], 
+                                                  x[..., ::2, 1::2], 
+                                                  x[..., 1::2, 1::2]], 1)))
         # return self.conv(self.contract(x))
 
 
